@@ -1,0 +1,246 @@
+//comment button v2
+//https://yardaptm-na12.voc.project44.com/*
+
+// Wait for the Edit button to be available in the DOM
+function waitForEditButton() {
+  // Look for buttons with the mat-stroked-button class
+  const buttons = document.querySelectorAll('button.mat-stroked-button.mat-button-base.mat-primary');
+  
+  let editButton = null;
+  
+  // Find the one with "edit" icon
+  for (const button of buttons) {
+    const icon = button.querySelector('mat-icon');
+    if (icon && icon.textContent.trim() === 'edit') {
+      editButton = button;
+      break;
+    }
+  }
+  
+  if (editButton) {
+    // Add click event listener to the Edit button
+    editButton.addEventListener('click', handleEditButtonClick);
+  } else {
+    // If button not found, retry after a short delay
+    setTimeout(waitForEditButton, 500);
+  }
+}
+
+// Handle the click event on the Edit button
+function handleEditButtonClick() {
+  // Wait for the modal to appear
+  setTimeout(() => {
+    const modalBody = document.querySelector('.mt-body');
+    if (!modalBody) return;
+    
+    // Find the comment textarea
+    const commentTextarea = modalBody.querySelector('textarea[matinput]');
+    if (!commentTextarea) return;
+    
+    // Create the new fields if they don't exist
+    if (!document.getElementById('custom-fields-container')) {
+      createCustomFields(modalBody, commentTextarea);
+    }
+  }, 500);
+}
+
+// Define the fields with their labels
+const fieldDefinitions = [
+  { tag: 'B', label: 'PRIMER NOMBRE DEL OPERADOR' },
+  { tag: 'C', label: 'SEGUNDO NOMBRE DEL OPERADOR' },
+  { tag: 'D', label: 'PRIMER APELLIDO DEL OPERADOR' },
+  { tag: 'E', label: 'SEGUNDO APELLIDO DEL OPERADOR' },
+  { tag: 'F', label: 'NUMERO DE TELEFONO DEL OPERADOR' },
+  { tag: 'G', label: 'NUMERO DE LICENCIA DEL OPERADOR' },
+  { tag: 'H', label: 'NUMERO DE SEGURIDAD SOCIAL DEL OPERADOR' },
+  { tag: 'I', label: 'NUMERO ECONOMICO DEL TRACTOCAMION' },
+  { tag: 'J', label: 'PLACA TRACTO' },
+  { tag: 'K', label: 'AÑO TRACTO' },
+  { tag: 'L', label: 'MARCA TRACTO' },
+  { tag: 'M', label: 'NUMERO ECONOMICO TRAILER 1' },
+  { tag: 'N', label: 'PLACA TRAILER 1' },
+  { tag: 'O', label: 'AÑO TRAILER 1' },
+  { tag: 'P', label: 'MARCA TRAILER 1' },
+  { tag: 'Q', label: 'NUMERO ECONOMICO TRAILER 2' },
+  { tag: 'R', label: 'PLACA TRAILER 2' },
+  { tag: 'S', label: 'AÑO TRAILER 2' },
+  { tag: 'T', label: 'MARCA TRAILER 2' },
+  { tag: 'U', label: 'LINEA TRANSPORTISTA (EN CASO DE NO SER CONTRATADO DIRECTAMENTE POR CONSTELLATION BRANDS)' },
+  { tag: 'V', label: 'UUID DE COMPLEMENTO CARTA PORTE (SOLO SALIDAS DE PRODUCTO TERMINADO EXPORTACIÓN)' },
+  { tag: 'W', label: 'INCIDENCIA EAGLE EYE' },
+  { tag: 'X', label: 'INCIDENCIA SEGURIDAD PATRIMONIAL' },
+  { tag: 'Y', label: 'INCIDENCIA ALMACEN' },
+  { tag: 'Z', label: 'VIAJE EN COMUN - APLICA SOLO PARA EXPORTACIONES EN OBREGON' },
+  { tag: 'S1', label: 'SELLO 1 (CAJA SECA)' },
+  { tag: 'S2', label: 'SELLO 2 (FULL)' },
+  { tag: 'S3', label: 'SELLO 3 (TOLVA GRANELERA)' },
+  { tag: 'S4', label: 'SELLO 4 (TOLVA GRANELERA)' },
+  { tag: 'S5', label: 'SELLO 5 (TOLVA GRANELERA)' },
+  { tag: 'S6', label: 'SELLO 6 (TOLVA GRANELERA)' },
+  { tag: 'S7', label: 'SELLO 7 (TOLVA GRANELERA)' }
+];
+
+// Create all the custom fields
+function createCustomFields(modalBody, commentTextarea) {
+  // Create container for all fields
+  const container = document.createElement('div');
+  container.id = 'custom-fields-container';
+  container.style.marginTop = '20px';
+  container.style.marginBottom = '20px';
+  container.style.maxHeight = '400px';
+  container.style.overflowY = 'auto';
+  container.style.padding = '10px';
+  container.style.border = '1px solid #e0e0e0';
+  container.style.borderRadius = '5px';
+  container.style.backgroundColor = '#f9f9f9';
+  
+  // Create heading
+  const heading = document.createElement('h3');
+  heading.textContent = 'Campos adicionales';
+  heading.style.marginTop = '0';
+  heading.style.marginBottom = '15px';
+  heading.style.fontSize = '16px';
+  heading.style.fontWeight = 'bold';
+  container.appendChild(heading);
+  
+  // Add fields from the definitions
+  fieldDefinitions.forEach(field => {
+    const fieldContainer = createField(field.tag, field.label, commentTextarea);
+    container.appendChild(fieldContainer);
+  });
+  
+  // Insert before the buttons section
+  const buttonsSection = modalBody.querySelector('.text-end.mt-4.mb-4');
+  modalBody.insertBefore(container, buttonsSection);
+  
+  // Set up event listener for the comment textarea to update all fields
+  commentTextarea.addEventListener('input', function() {
+    updateAllFieldsFromComment(this.value);
+  });
+}
+
+// Create a single field with label and input
+function createField(tag, label, commentTextarea) {
+  const fieldContainer = document.createElement('div');
+  fieldContainer.className = 'custom-field-container';
+  fieldContainer.style.marginBottom = '15px';
+  
+  const fieldLabel = document.createElement('label');
+  fieldLabel.textContent = label + ':';
+  fieldLabel.style.display = 'block';
+  fieldLabel.style.marginBottom = '5px';
+  fieldLabel.style.fontSize = '14px';
+  
+  const fieldInput = document.createElement('input');
+  fieldInput.id = 'field-' + tag;
+  fieldInput.setAttribute('data-tag', tag);
+  fieldInput.type = 'text';
+  fieldInput.style.width = '100%';
+  fieldInput.style.padding = '8px';
+  fieldInput.style.boxSizing = 'border-box';
+  fieldInput.style.border = '1px solid #ccc';
+  fieldInput.style.borderRadius = '4px';
+  
+  // Extract value from comment and set it to the input
+  const tagValue = extractTagValue(commentTextarea.value, tag);
+  fieldInput.value = tagValue || '';
+  
+  // Set up event listener for this field
+  fieldInput.addEventListener('input', function() {
+    updateTagValueInComment(tag, this.value, commentTextarea);
+  });
+  
+  fieldContainer.appendChild(fieldLabel);
+  fieldContainer.appendChild(fieldInput);
+  
+  return fieldContainer;
+}
+
+// Extract value for a specific tag from the comment
+function extractTagValue(comment, tag) {
+  if (!comment) return '';
+  
+  // Handle special case for S1-S7 tags
+  if (tag.startsWith('S') && tag.length === 2 && !isNaN(tag.charAt(1))) {
+    const regex = new RegExp('<' + tag + '>(.*?)</' + tag + '>', 'i');
+    const match = comment.match(regex);
+    return match ? match[1] : '';
+  }
+  
+  // Regular tags
+  const regex = new RegExp('<' + tag + '>(.*?)</' + tag + '>', 'i');
+  const match = comment.match(regex);
+  return match ? match[1] : '';
+}
+
+// Update a specific tag value in the comment
+// Update a specific tag value in the comment
+function updateTagValueInComment(tag, value, commentTextarea) {
+  let commentValue = commentTextarea.value || '';
+  
+  // Regular expression to match the tag
+  const regex = new RegExp('<' + tag + '>.*?</' + tag + '>', 'i');
+  
+  if (commentValue.match(regex)) {
+    // Update existing tag
+    commentValue = commentValue.replace(regex, '<' + tag + '>' + value + '</' + tag + '>');
+  } else if (commentValue.includes('</A>')) {
+    // Add tag before closing A tag
+    commentValue = commentValue.replace('</A>', '<' + tag + '>' + value + '</' + tag + '></A>');
+  } else if (commentValue.match(/<A>.*?/i)) {
+    // Comment starts with <A> but doesn't have </A> - add tag and closing </A>
+    commentValue = commentValue + '<' + tag + '>' + value + '</' + tag + '></A>';
+  } else if (commentValue.trim() === '') {
+    // Create new structure if comment is completely empty
+    commentValue = '<A><' + tag + '>' + value + '</' + tag + '></A>';
+  } else {
+    // Comment has content but is not properly formatted with <A> tags
+    // Preserve existing content and add proper structure
+    commentValue = '<A>' + commentValue + '<' + tag + '>' + value + '</' + tag + '></A>';
+  }
+  
+  commentTextarea.value = commentValue;
+  
+  // Trigger change event for Angular binding
+  const event = new Event('input', { bubbles: true, cancelable: true });
+  commentTextarea.dispatchEvent(event);
+}
+
+// Update all fields based on the current comment value
+function updateAllFieldsFromComment(commentValue) {
+  fieldDefinitions.forEach(field => {
+    const fieldInput = document.getElementById('field-' + field.tag);
+    if (fieldInput) {
+      const tagValue = extractTagValue(commentValue, field.tag);
+      if (fieldInput.value !== tagValue) {
+        fieldInput.value = tagValue || '';
+      }
+    }
+  });
+}
+
+// Start observing DOM for changes to handle dynamically loaded elements
+const observer = new MutationObserver((mutations) => {
+  for (const mutation of mutations) {
+    if (mutation.addedNodes.length) {
+      // Check if our edit button exists after DOM changes
+      waitForEditButton();
+      
+      // Check if modal was added
+      const modal = document.querySelector('.mt-modal');
+      if (modal) {
+        const commentTextarea = modal.querySelector('textarea[matinput]');
+        const modalBody = modal.querySelector('.mt-body');
+        if (commentTextarea && modalBody && !document.getElementById('custom-fields-container')) {
+          createCustomFields(modalBody, commentTextarea);
+        }
+      }
+    }
+  }
+});
+
+// Start observing
+observer.observe(document.body, { childList: true, subtree: true });
+
+// Initial check for the edit button
+waitForEditButton();
