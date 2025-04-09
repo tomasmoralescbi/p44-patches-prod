@@ -1,0 +1,515 @@
+//schedule hover v2
+//https://yardaptm-na12.voc.project44.com/schedule
+
+(function() {
+
+
+
+// Wait for fetch/XHR requests
+const originalFetch = window.fetch;
+let authorizationHeader = '';
+
+// Override fetch to capture auth headers
+window.fetch = async function(url, options) {
+    // Check if this is the request we're looking for
+    if (url && url.includes('yardaptm-na12.api.project44.com/v1/dock-door/')) {
+        if (options && options.headers) {
+            // Extract from Headers object if it's one
+            if (options.headers instanceof Headers) {
+                authorizationHeader = options.headers.get('Authorization');
+            } 
+            // Extract from plain object
+            else if (typeof options.headers === 'object') {
+                const headerKey = Object.keys(options.headers)
+                    .find(key => key.toLowerCase() === 'authorization');
+                if (headerKey) {
+                    authorizationHeader = options.headers[headerKey];
+                }
+            }
+            
+            if (authorizationHeader) {
+                console.log('✅ Authorization header captured!');
+                console.log('Header value:', authorizationHeader);
+            }
+        }
+    }
+    
+    // Call the original fetch
+    return originalFetch.apply(this, arguments);
+};
+
+// Also intercept XMLHttpRequest
+const originalOpen = XMLHttpRequest.prototype.open;
+const originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
+
+XMLHttpRequest.prototype.open = function(method, url) {
+    this._url = url;
+    return originalOpen.apply(this, arguments);
+};
+
+XMLHttpRequest.prototype.setRequestHeader = function(header, value) {
+    if (this._url && this._url.includes('yardaptm-na12.api.project44.com/v1/dock-door/')) {
+        if (header.toLowerCase() === 'authorization') {
+            authorizationHeader = value;
+            console.log('✅ Authorization header captured from XHR!');
+            console.log('Header value:', authorizationHeader);
+        }
+    }
+    return originalSetRequestHeader.apply(this, arguments);
+};
+
+// Expose the variable to the global scope
+window.getAuthHeader = function() {
+    return authorizationHeader;
+};
+
+console.log('🔍 Auth header interceptor activated for P44 API requests');
+
+   // Create tooltip element
+const tooltip = document.createElement('div');
+tooltip.style.position = 'fixed'; // Changed from 'absolute' to 'fixed'
+tooltip.style.padding = '10px';
+tooltip.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+tooltip.style.color = 'white';
+tooltip.style.borderRadius = '5px';
+tooltip.style.fontSize = '14px';
+tooltip.style.boxShadow = '0 2px 5px rgba(0, 0, 0, 0.3)';
+tooltip.style.zIndex = '9999999'; // Ensure it appears above all layers
+tooltip.style.display = 'none';
+tooltip.style.maxWidth = '350px'; // Slightly wider
+tooltip.style.left = '20px'; // Fixed left position
+tooltip.style.top = '50%'; // Center vertically in the viewport
+tooltip.style.transform = 'translateY(-50%)'; // Offset by half height for true centering
+tooltip.style.maxHeight = '80vh'; // Maximum height to prevent overflow
+tooltip.style.overflowY = 'auto'; // Add scrolling if content is too tall
+tooltip.style.borderLeft = '3px solid #4287f5'; // Styled left border
+tooltip.style.pointerEvents = 'none'; // Prevent tooltip from interfering with mouse events
+document.body.appendChild(tooltip);
+
+  // Current API request state
+  let currentShipmentRequest = null;
+  let currentIncidentsRequest = null;
+  let currentHoveredElement = null;
+
+  // Add hover event listeners
+  document.addEventListener('mouseover', function(e) {
+    const target = e.target;
+    
+    // Check if the hovered element is the target element
+    if (target.classList.contains('dhx_cal_event_line')) {
+      currentHoveredElement = target;
+      
+      // Look for the ID in the element with class "text-uppercase font-weight-bold"
+      let rawShipmentId;
+      
+      // First, check if the element exists within the hovered element
+      const idElement = target.querySelector('.text-uppercase');
+      
+      if (idElement) {
+        // Extract the ID from the element's text content
+        rawShipmentId = idElement.textContent.trim();
+      } else {
+        // Fallback: Check if the hovered element itself has the class
+        if (target.classList.contains('text-uppercase') && target.classList.contains('font-weight-bold')) {
+          rawShipmentId = target.textContent.trim();
+        } else {
+          // Use a default ID or try to get it from data attribute as fallback
+          rawShipmentId = target.getAttribute('data-id') || 'default-id';
+        }
+      }
+      
+      // Clean the shipment ID by removing any '#' characters
+      const shipmentId = rawShipmentId.replace(/#/g, '');
+      
+      console.log('Original ID:', rawShipmentId, 'Cleaned ID:', shipmentId); // Debug log
+      
+      // Cancel any pending request
+      if (currentShipmentRequest) {
+        currentShipmentRequest.abort();
+      }
+      if (currentIncidentsRequest) {
+        currentIncidentsRequest.abort();
+      }
+      
+      // Update tooltip content to "Loading..."
+      tooltip.textContent = 'Loading...';
+      tooltip.style.display = 'block';
+      positionTooltip(e);
+      
+      // Make main shipment API request
+      fetchShipmentData(shipmentId)
+        .then(result => {
+          // Access both values here
+          const { uuid, site } = result;
+          console.log('Shipment UUID:', uuid);
+          console.log('Shipment Site:', site);
+          
+          // For example, you can now pass them to another function
+          if (uuid && site) {
+            fetchIncidentsHistory(uuid, site);
+          }
+        })
+        .catch(error => {
+          console.error('Error fetching shipment data:', error);
+        });
+
+
+
+      
+      // Get the site from the URL or another appropriate source
+      // For example, extracting from URL path
+      
+      
+      // Make separate incidents history request
+      fetchIncidentsHistory(shipmentId, site);
+    }
+  });
+
+  document.addEventListener('mouseout', function(e) {
+    if (e.target.classList.contains('dhx_cal_event_line')) {
+      hideTooltip();
+      
+      // Cancel any pending requests
+      if (currentShipmentRequest) {
+        currentShipmentRequest.abort();
+        currentShipmentRequest = null;
+      }
+      if (currentIncidentsRequest) {
+        currentIncidentsRequest.abort();
+        currentIncidentsRequest = null;
+      }
+      
+      currentHoveredElement = null;
+    }
+  });
+
+// Remove this event listener completely:
+// document.addEventListener('mousemove', function(e) {
+//   if (tooltip.style.display === 'block') {
+//     positionTooltip(e);
+//   }
+// });
+
+  // Function to fetch shipment data from the API
+  function fetchShipmentData(id) {
+    return new Promise((resolve, reject) => {
+      const url = `https://yardaptm-na12.api.project44.com/v1/shipment/delivery/`+id;
+      
+      currentShipmentRequest = new XMLHttpRequest();
+      currentShipmentRequest.open('GET', url, true);
+      
+      // Set allowed headers
+      currentShipmentRequest.setRequestHeader('Authorization', authorizationHeader);
+      currentShipmentRequest.setRequestHeader('Content-Type', 'application/json');
+      
+      currentShipmentRequest.onload = function() {
+        if (this.status >= 200 && this.status < 400) {
+          // Success!
+          try {
+            const data = JSON.parse(this.response);
+            updateTooltipContent(data);
+            
+            // Resolve the promise with both uuid and site
+            resolve({
+              uuid: data && data.uuid ? data.uuid : null,
+              site: data && data.site ? data.site : null
+            });
+          } catch (e) {
+            updateTooltipContent({ error: 'Comentario no está en el formato' });
+            reject(e);
+          }
+        } else {
+          // Error response from server
+          updateTooltipContent({ error: 'no encontrado' });
+          reject(new Error('Solicitud API fallo con estado: ' + this.status));
+        }
+        
+        currentShipmentRequest = null;
+      };
+      
+      currentShipmentRequest.onerror = function() {
+        updateTooltipContent({ error: 'no encontrado' });
+        reject(new Error('Error de red'));
+        currentShipmentRequest = null;
+      };
+      
+      currentShipmentRequest.withCredentials = true; // This enables sending cookies with cross-origin requests
+      
+      currentShipmentRequest.send();
+    });
+  }
+
+  // Function to fetch incidents history
+  function fetchIncidentsHistory(bookingId, site) {
+    const url = "https://yardaptm-na12.api.project44.com/v1/shipment/activity-log/search?size=10&page_no=1&search_term=comment&shipment_id="+bookingId+"&site="+site;
+    
+    currentIncidentsRequest = new XMLHttpRequest();
+    currentIncidentsRequest.open('GET', url, true);
+    
+    // Set allowed headers
+    currentIncidentsRequest.setRequestHeader('Authorization', authorizationHeader);
+    currentIncidentsRequest.setRequestHeader('Content-Type', 'application/json');
+    
+    currentIncidentsRequest.onload = function() {
+      if (this.status >= 200 && this.status < 400) {
+        try {
+          const data = JSON.parse(this.response);
+          updateIncidentsSection(data);
+        } catch (e) {
+          updateIncidentsSection({ error: 'Formato de incidente no válido' });
+        }
+      } else {
+        updateIncidentsSection({ error: 'No se encontraron incidentes' });
+      }
+      
+      currentIncidentsRequest = null;
+    };
+    
+    currentIncidentsRequest.onerror = function() {
+      updateIncidentsSection({ error: 'Error al cargar incidentes' });
+      currentIncidentsRequest = null;
+    };
+    
+    currentIncidentsRequest.withCredentials = true;
+    
+    currentIncidentsRequest.send();
+  }
+
+  // Function to update the tooltip content with main shipment data
+  function updateTooltipContent(data) {
+    if (!currentHoveredElement) return;
+    
+    if (data.error) {
+      tooltip.textContent = data.error;
+      return;
+    }
+    
+    // The XML string
+    const xmlString = data.comment;
+    // Create a DOM parser
+    const parser = new DOMParser();
+
+    // Fix the XML string by adding a closing tag
+    // This handles both uppercase and lowercase A tags
+    const fixedXmlString = xmlString
+      .replace(/<A>\\\$/i, '</A>')  // Case-insensitive replacement
+      .replace(/<a>\\\$/i, '</a>'); // Also handle lowercase closing tag
+
+    // Parse the XML string
+    const xmlDoc = parser.parseFromString(fixedXmlString, "text/xml");
+
+    // Helper function to get element value regardless of case
+    function getElementValueCaseInsensitive(doc, tagName) {
+        // Look for element with uppercase tag
+        let element = doc.getElementsByTagName(tagName.toUpperCase())[0];
+        
+        // If not found, look for element with lowercase tag
+        if (!element) {
+            element = doc.getElementsByTagName(tagName.toLowerCase())[0];
+        }
+        
+        // Return the text content or empty string
+        return element?.textContent || '';
+    }
+
+    // Extract values into variables using the caseinsensitive function
+    const b_value = getElementValueCaseInsensitive(xmlDoc, 'B');
+    const c_value = getElementValueCaseInsensitive(xmlDoc, 'C');
+    const d_value = getElementValueCaseInsensitive(xmlDoc, 'D');
+    const e_value = getElementValueCaseInsensitive(xmlDoc, 'E');
+    const f_value = getElementValueCaseInsensitive(xmlDoc, 'F');
+    const g_value = getElementValueCaseInsensitive(xmlDoc, 'G');
+    const h_value = getElementValueCaseInsensitive(xmlDoc, 'H');
+    const i_value = getElementValueCaseInsensitive(xmlDoc, 'I');
+    const j_value = getElementValueCaseInsensitive(xmlDoc, 'J');
+    const k_value = getElementValueCaseInsensitive(xmlDoc, 'K');
+    const l_value = getElementValueCaseInsensitive(xmlDoc, 'L');
+    const m_value = getElementValueCaseInsensitive(xmlDoc, 'M');
+    const n_value = getElementValueCaseInsensitive(xmlDoc, 'N');
+    const o_value = getElementValueCaseInsensitive(xmlDoc, 'O');
+    const p_value = getElementValueCaseInsensitive(xmlDoc, 'P');
+    const q_value = getElementValueCaseInsensitive(xmlDoc, 'Q');
+    const r_value = getElementValueCaseInsensitive(xmlDoc, 'R');
+    const s_value = getElementValueCaseInsensitive(xmlDoc, 'S');
+    const t_value = getElementValueCaseInsensitive(xmlDoc, 'T');
+    const s1_value = getElementValueCaseInsensitive(xmlDoc, 'S1');
+    const s2_value = getElementValueCaseInsensitive(xmlDoc, 'S2');
+
+    // Format the tooltip content with the data
+    // First, prepare the SKU and quantity information safely
+    let skuInfo = "";
+    if (data.load_information && 
+        Array.isArray(data.load_information) && 
+        data.load_information.length > 0) {
+        
+        const loadInfo = data.load_information[0];
+        const sku = loadInfo.sku || "N/A";
+        const qty = loadInfo.qty || "N/A";
+        
+        skuInfo = "<strong>SKU:</strong> " + sku + "<br><strong>Cantidad:</strong>" + qty;
+    } else {
+        skuInfo = "<strong>SKU:</strong> No disponible";
+    }
+
+    console.log("Check");
+
+    let entrega = "";
+    if (data.additional_labels_reference && data.additional_labels_reference.length>0){
+
+      const referenceEntrega = data.additional_labels_reference.find(item => item.name === "reference_2");
+      const entregaValue = referenceEntrega ? referenceEntrega.values[0] : "";
+
+      entrega = "<strong>Entrega:</strong> " + entregaValue;
+
+    } else {
+      entrega = "<strong>Entrega:</strong> No disponible";
+    }
+
+    console.log(entrega);
+
+    // Now build the content with the safely prepared SKU info
+    let content = 
+    "<strong>Folio:</strong>" + data._id + "<br>" +
+     "<strong>Nombre:</strong> " + b_value + " "+ c_value + " " + d_value + " "+ e_value + "<br>" +
+     "<strong>Telefono:</strong> " + f_value + "<br>" +
+      "<strong>Tracto:</strong> " + i_value + " "+ j_value + " " + k_value + " "+ l_value + "<br>" +
+      "<strong>Trailer 1:</strong> " + m_value + " "+ n_value + " " + o_value + " "+ p_value + "<br>" +
+      "<strong>Trailer 2:</strong> " + q_value + " "+ r_value + " " + s_value + " "+ t_value + "<br>" +
+      "<strong>Sellos:</strong> " + s1_value + " "+ s2_value + "<br>" +
+      entrega + "<br>" +
+      "<strong>Fecha de descarga:</strong> " + data.slot_range_start_time + "<br>" +
+      skuInfo;
+      
+    // Add a section for incidents that will be populated later
+    content += "<br><hr><div id='incidents-section'><strong>Historial de Incidentes:</strong><br>Cargando...</div>";
+    
+    tooltip.innerHTML = content;
+  }
+// Function to update just the incidents section of the tooltip
+function updateIncidentsSection(data) {
+  // Get the incidents section element
+  const incidentsSection = document.getElementById('incidents-section');
+  if (!incidentsSection) return;
+  
+  if (data.error) {
+    incidentsSection.innerHTML = "<strong>Historial de Incidentes:</strong><br>Error cargando incidentes.";
+    return;
+  }
+  
+  // Format the incidents
+  let incidentsContent = "<strong>Historial de Incidentes:</strong><br>";
+  let incidentsFound = false;
+  
+  // Track unique incidents to avoid duplicates
+  const processedIncidents = new Set();
+  
+  if (data.data && Array.isArray(data.data) && data.data.length > 0) {
+    // Process each incident
+    data.data.forEach(incident => {
+      if (incident.shipment_attribute && Array.isArray(incident.shipment_attribute)) {
+        incident.shipment_attribute.forEach(attr => {
+          if (attr.attribute === 'comment' && attr.value_to) {
+            // Define all incident types with their regex, type name and color
+            const incidentTypes = [
+              {
+                regex: /<W>(.*?)<\/W>/gi,
+                type: "Eagle Eye", 
+                color: "#4287f5"
+              },
+              {
+                regex: /<X>(.*?)<\/X>/gi,
+                type: "Seguridad", 
+                color: "#f54242"
+              },
+              {
+                regex: /<Y>(.*?)<\/Y>/gi,
+                type: "Almacén", 
+                color: "#f5a742"
+              }
+            ];
+            
+            // Format the date
+            let dateStr = "N/A";
+            if (incident.timeline && incident.timeline.created_date) {
+              const date = new Date(incident.timeline.created_date);
+              const formattedDate = date.toLocaleDateString();
+              const formattedTime = date.toLocaleTimeString();
+              dateStr = formattedDate + ' ' + formattedTime;
+            }
+            
+            // Get who created the incident
+            let createdBy = "Sistema";
+            if (incident.timeline && 
+                incident.timeline.created_by && 
+                incident.timeline.created_by.name && 
+                incident.timeline.created_by.name.trim() !== '') {
+              createdBy = incident.timeline.created_by.name;
+            }
+            
+            // Process each incident type
+            incidentTypes.forEach(incidentType => {
+              let matches;
+              while ((matches = incidentType.regex.exec(attr.value_to)) !== null) {
+                // Skip if incident text is empty
+                const incidentText = matches[1] ? matches[1].trim() : '';
+                if (!incidentText) continue;
+                
+                // Create a unique identifier for this incident
+                const uniqueKey = incidentType.type + incidentText;
+                
+                // Only process if we haven't seen this exact incident before
+                if (!processedIncidents.has(uniqueKey)) {
+                  processedIncidents.add(uniqueKey);
+                  incidentsFound = true;
+                  
+                  // Add this incident to the content with type badge
+                  incidentsContent += `<div style="margin-top: 8px; padding: 5px; border-bottom: 1px solid #444; background-color: rgba(255,255,255,0.05);">
+                    <div style="display: flex; justify-content: space-between;">
+                      <span style="font-size: 12px; color: #ccc;">`+dateStr+`</span>
+                      <span style="font-size: 12px; color: #aaa;">`+createdBy+`</span>
+                    </div>
+                    <div style="display: inline-block; margin-top: 5px; padding: 2px 6px; border-radius: 3px; font-size: 11px; background-color:`+incidentType.color+`; color: white;">
+                      `+incidentType.type+`
+                    </div>
+                    <div style="margin-top: 5px; line-height: 1.4;">
+                      `+incidentText+`
+                    </div>
+                  </div>`;
+                }
+              }
+            });
+          }
+        });
+      }
+    });
+  }
+  
+  if (!incidentsFound) {
+    incidentsContent += "<div style='padding: 5px; color: #999;'>No se encontraron incidentes.</div>";
+  }
+  
+  incidentsSection.innerHTML = incidentsContent;
+}
+  
+  // Function to position the tooltip
+// Function to position the tooltip on the left side of the window
+// And replace the positionTooltip function with this simplified version:
+function positionTooltip() {
+  // No need to do anything - position is fixed by CSS
+  // This function is kept just to maintain compatibility with other code
+}
+  // Function to hide tooltip
+  function hideTooltip() {
+    tooltip.style.display = 'none';
+  }
+
+  // Helper function to abort XHR if not supported directly
+  if (!XMLHttpRequest.prototype.abort) {
+    XMLHttpRequest.prototype.abort = function() {
+      if (this.readyState !== 4) {
+        this.onreadystatechange = function() {};
+        this.abort();
+      }
+    };
+  }
+})();
