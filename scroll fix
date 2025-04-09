@@ -1,0 +1,305 @@
+//schedule scroll fix v3
+//https://yardaptm-na12.voc.project44.com/schedule
+
+(function() {
+    console.log('Timeline Scroll Preserver: Initializing');
+    
+    // Store last non-zero scroll position
+    let lastTop = 0;
+    let lastLeft = 0;
+    
+    // Flag to indicate page is fully loaded
+    let pageLoaded = false;
+    
+    // Flag to prevent restoration loops
+    let isRestoring = false;
+    
+    // Flag to track if user is manually scrolling
+    let userScrolling = false;
+    let userScrollTimeout = null;
+    
+    // Listen for page load completion
+    window.addEventListener('load', function() {
+        console.log('Page load event completed');
+        
+        // Give a small delay after load to let any final scripts run
+        setTimeout(() => {
+            pageLoaded = true;
+            console.log('Timeline Scroll Preserver: Page fully loaded, ready to manage scroll positions');
+            
+            // Check if we already have a timeline and try to restore scroll position
+            const timeline = document.querySelector('.dhx_timeline_data_wrapper.dhx_timeline_scrollable_data');
+            if (timeline && lastTop > 0) {
+                console.log("Page loaded, applying initial scroll position:", lastTop, lastLeft);
+                applyScrollPosition(timeline, lastTop, lastLeft);
+            }
+        }, 500); // Half-second delay after load event
+    });
+    
+    // Function to attach scroll and interaction event listeners to detect user scrolling
+    function attachUserScrollDetection(timeline) {
+        if (!timeline || timeline.hasAttribute('data-user-scroll-detection')) return;
+        
+        // Mark this timeline as having user scroll detection
+        timeline.setAttribute('data-user-scroll-detection', 'true');
+        
+        console.log("Setting up user scroll detection on timeline");
+        
+        // Detect scrolling
+        timeline.addEventListener('scroll', function(e) {
+            // Skip if we're currently in a programmatic restore
+            if (isRestoring) return;
+            
+            // Mark that user is actively scrolling
+            userScrolling = true;
+            
+            // Save this position if it's non-zero
+            if (this.scrollTop > 0 || this.scrollLeft > 0) {
+                lastTop = this.scrollTop;
+                lastLeft = this.scrollLeft;
+            }
+            
+            // Clear any existing timeout
+            if (userScrollTimeout) clearTimeout(userScrollTimeout);
+            
+            // Set a timeout to mark the end of user scrolling
+            userScrollTimeout = setTimeout(() => {
+                userScrolling = false;
+                console.log("User finished scrolling, final position:", this.scrollTop, this.scrollLeft);
+            }, 300); // Consider user done scrolling after 300ms of no scroll events
+        });
+        
+        // Detect mouse interactions
+        timeline.addEventListener('mousedown', function() {
+            userScrolling = true;
+            if (userScrollTimeout) clearTimeout(userScrollTimeout);
+        });
+        
+        // Detect touch interactions
+        timeline.addEventListener('touchstart', function() {
+            userScrolling = true;
+            if (userScrollTimeout) clearTimeout(userScrollTimeout);
+        });
+        
+        // Handle end of interaction at document level
+        document.addEventListener('mouseup', function() {
+            if (userScrolling) {
+                userScrollTimeout = setTimeout(() => {
+                    userScrolling = false;
+                    console.log("User finished mouse interaction");
+                }, 200);
+            }
+        });
+        
+        document.addEventListener('touchend', function() {
+            if (userScrolling) {
+                userScrollTimeout = setTimeout(() => {
+                    userScrolling = false;
+                    console.log("User finished touch interaction");
+                }, 200);
+            }
+        });
+        
+        console.log("User scroll detection initialized for timeline");
+    }
+    
+    // Function to apply scroll position with animation frame for better performance
+    function applyScrollPosition(element, top, left) {
+        if (!element) return false;
+        
+        isRestoring = true;
+        
+        requestAnimationFrame(() => {
+            element.scrollTop = top;
+            element.scrollLeft = left;
+            
+            // Double-check that the position was applied correctly
+            requestAnimationFrame(() => {
+                // If position wasn't applied correctly, try once more
+                if (element.scrollTop !== top) {
+                    element.scrollTop = top;
+                }
+                if (element.scrollLeft !== left) {
+                    element.scrollLeft = left;
+                }
+                
+                setTimeout(() => {
+                    isRestoring = false;
+                }, 50);
+            });
+        });
+        
+        return true;
+    }
+    
+    // Main function to preserve scroll position
+    function preserveScrollPosition() {
+        // Find the timeline element
+        const timeline = document.querySelector('.dhx_timeline_data_wrapper.dhx_timeline_scrollable_data');
+        if (!timeline) return;
+        
+        // Set up user scroll detection if needed
+        attachUserScrollDetection(timeline);
+        
+        // Skip if we're currently restoring
+        if (isRestoring) return;
+        
+        // Skip if user is manually scrolling - THIS IS THE KEY ADDITION
+        if (userScrolling) {
+            console.log("User is actively scrolling, skipping position preservation");
+            return;
+        }
+        
+        // Case 1: Non-zero position, save it
+        if (timeline.scrollTop > 0 || timeline.scrollLeft > 0) {
+            // Only update if values actually changed
+            if (timeline.scrollTop !== lastTop || timeline.scrollLeft !== lastLeft) {
+                lastTop = timeline.scrollTop;
+                lastLeft = timeline.scrollLeft;
+                console.log("Saved scroll position:", lastTop, lastLeft);
+            }
+        }
+        // Case 2: Zero position but we have a saved position
+        else if ((lastTop > 0 || lastLeft > 0) && timeline.scrollTop === 0) {
+            // Only try to restore if page is fully loaded
+            if (pageLoaded) {
+                console.log("Restoring scroll position:", lastTop, lastLeft);
+                applyScrollPosition(timeline, lastTop, lastLeft);
+            } else {
+                console.log("Page not fully loaded yet, waiting before restoring scroll position");
+            }
+        }
+    }
+    
+    // Function to listen for changes in the timeline element (it might be added after our script runs)
+    function setupTimelineWatcher() {
+        // Create observer to watch for the timeline element being added to DOM
+        const observer = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                    const timeline = document.querySelector('.dhx_timeline_data_wrapper.dhx_timeline_scrollable_data');
+                    
+                    if (timeline) {
+                        // Setup user scroll detection first
+                        attachUserScrollDetection(timeline);
+                        
+                        // If timeline exists and we have a saved position, restore it (if page is loaded and user isn't scrolling)
+                        if (lastTop > 0 && pageLoaded && !userScrolling) {
+                            console.log("Timeline found after DOM change, restoring scroll position:", lastTop, lastLeft);
+                            applyScrollPosition(timeline, lastTop, lastLeft);
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Start observing
+        observer.observe(document.body, { childList: true, subtree: true });
+        
+        console.log('Timeline watcher set up');
+    }
+    
+    // Set up scroll position memory across view changes by storing in sessionStorage
+    function setupPersistentScrollMemory() {
+        // Try to get saved position from session storage
+        try {
+            const savedPosition = sessionStorage.getItem('timelineScrollPosition');
+            if (savedPosition) {
+                const parsed = JSON.parse(savedPosition);
+                lastTop = parsed.top || 0;
+                lastLeft = parsed.left || 0;
+                console.log("Loaded saved scroll position from session storage:", lastTop, lastLeft);
+            }
+        } catch (e) {
+            console.error("Error loading scroll position from session storage:", e);
+        }
+        
+        // Save position to session storage when leaving the page
+        window.addEventListener('beforeunload', function() {
+            if (lastTop > 0 || lastLeft > 0) {
+                try {
+                    sessionStorage.setItem('timelineScrollPosition', JSON.stringify({
+                        top: lastTop,
+                        left: lastLeft,
+                        timestamp: Date.now()
+                    }));
+                    console.log("Saved scroll position to session storage:", lastTop, lastLeft);
+                } catch (e) {
+                    console.error("Error saving scroll position to session storage:", e);
+                }
+            }
+        });
+    }
+    
+    // Allow external control of scroll position restoration
+    window.fixScroll = function(options = {}) {
+        const timeline = document.querySelector('.dhx_timeline_data_wrapper.dhx_timeline_scrollable_data');
+        if (!timeline) return { success: false, reason: 'Timeline element not found' };
+        
+        // Check if user is manually scrolling
+        if (userScrolling && !options.force) {
+            console.log("User is actively scrolling, not applying scroll position");
+            return {
+                success: false,
+                reason: 'User is actively scrolling',
+                position: { top: lastTop, left: lastLeft }
+            };
+        }
+        
+        // If specific position provided, use that
+        if (options.top !== undefined && options.left !== undefined) {
+            lastTop = options.top;
+            lastLeft = options.left;
+        }
+        
+        // Skip load check if forced
+        if (options.force === true) {
+            console.log("Forcing scroll position application:", lastTop, lastLeft);
+            return { 
+                success: applyScrollPosition(timeline, lastTop, lastLeft),
+                position: { top: lastTop, left: lastLeft }
+            };
+        }
+        
+        // Normal behavior - check if page is loaded
+        if (pageLoaded) {
+            console.log("Applying scroll position:", lastTop, lastLeft);
+            return { 
+                success: applyScrollPosition(timeline, lastTop, lastLeft),
+                position: { top: lastTop, left: lastLeft }
+            };
+        } else {
+            console.log("Page not fully loaded, scroll position will apply after load");
+            return { 
+                success: false, 
+                reason: 'Page not fully loaded',
+                position: { top: lastTop, left: lastLeft }, 
+                willApplyAfterLoad: true
+            };
+        }
+    };
+    
+    // For debugging: expose the internal state
+    window.getScrollState = function() {
+        return {
+            lastTop: lastTop,
+            lastLeft: lastLeft,
+            pageLoaded: pageLoaded,
+            isRestoring: isRestoring,
+            userScrolling: userScrolling,
+            hasTimeline: !!document.querySelector('.dhx_timeline_data_wrapper.dhx_timeline_scrollable_data')
+        };
+    };
+    
+    // Initialize everything
+    setupTimelineWatcher();
+    setupPersistentScrollMemory();
+    
+    // Do an initial check for the timeline element
+    preserveScrollPosition();
+    
+    // Set up interval to maintain scroll position
+    setInterval(preserveScrollPosition, 100);
+    
+    console.log('Timeline Scroll Preserver: Running');
+})();
