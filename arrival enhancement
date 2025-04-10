@@ -1,0 +1,478 @@
+//arrival enhancement v1
+//https://yard-visibility-na12.voc.project44.com/gate/console
+
+
+// Function to wait for an element to be available in the DOM 
+function waitForElement(selector, timeout = 10000) {
+  return new Promise((resolve, reject) => {
+    const startTime = Date.now();
+
+    const checkElement = () => {
+      const element = document.querySelector(selector);
+      if (element) {
+        resolve(element);
+        return;
+      }
+
+      if (Date.now() - startTime > timeout) {
+        reject(new Error(`Element \${selector} not found after \${timeout}ms`));
+        return;
+      }
+
+      setTimeout(checkElement, 100);
+    };
+
+    checkElement();
+  });
+}
+
+// Define the tag to label mapping
+const tagMapping = [
+  { tag: 'B', label: 'PRIMER NOMBRE DEL OPERADOR' },
+  { tag: 'C', label: 'SEGUNDO NOMBRE DEL OPERADOR' },
+  { tag: 'D', label: 'PRIMER APELLIDO DEL OPERADOR' },
+  { tag: 'E', label: 'SEGUNDO APELLIDO DEL OPERADOR' },
+  { tag: 'F', label: 'NUMERO DE TELEFONO DEL OPERADOR' },
+  { tag: 'G', label: 'NUMERO DE LICENCIA DEL OPERADOR' },
+  { tag: 'H', label: 'NUMERO DE SEGURIDAD SOCIAL DEL OPERADOR' },
+  { tag: 'I', label: 'NUMERO ECONOMICO DEL TRACTOCAMION' },
+  { tag: 'J', label: 'PLACA TRACTO' },
+  { tag: 'K', label: 'AÑO TRACTO' },
+  { tag: 'L', label: 'MARCA TRACTO' },
+  { tag: 'M', label: 'NUMERO ECONOMICO TRAILER 1' },
+  { tag: 'N', label: 'PLACA TRAILER 1' },
+  { tag: 'O', label: 'AÑO TRAILER 1' },
+  { tag: 'P', label: 'MARCA TRAILER 1' },
+  { tag: 'Q', label: 'NUMERO ECONOMICO TRAILER 2' },
+  { tag: 'R', label: 'PLACA TRAILER 2' },
+  { tag: 'S', label: 'AÑO TRAILER 2' },
+  { tag: 'T', label: 'MARCA TRAILER 2' },
+  { tag: 'U', label: 'LINEA TRANSPORTISTA (EN CASO DE NO SER CONTRATADO DIRECTAMENTE POR CONSTELLATION BRANDS)' },
+  { tag: 'V', label: 'UUID DE COMPLEMENTO CARTA PORTE (SOLO SALIDAS DE PRODUCTO TERMINADO EXPORTACIÓN)' },
+  { tag: 'W', label: 'INCIDENCIA EAGLE EYE' },
+  { tag: 'X', label: 'INCIDENCIA SEGURIDAD PATRIMONIAL' },
+  { tag: 'Y', label: 'INCIDENCIA ALMACEN' },
+  { tag: 'Z', label: 'VIAJE EN COMUN - APLICA SOLO PARA EXPORTACIONES EN OBREGON' },
+  { tag: 'S1', label: 'SELLO 1 (CAJA SECA)' },
+  { tag: 'S2', label: 'SELLO 2 (FULL)' },
+  { tag: 'S3', label: 'SELLO 3 (TOLVA GRANELERA)' },
+  { tag: 'S4', label: 'SELLO 4 (TOLVA GRANELERA)' },
+  { tag: 'S5', label: 'SELLO 5 (TOLVA GRANELERA)' },
+  { tag: 'S6', label: 'SELLO 6 (TOLVA GRANELERA)' },
+  { tag: 'S7', label: 'SELLO 7 (TOLVA GRANELERA)' }
+];
+
+// Function to create or update the tooltip
+function createOrUpdateTooltip(parsedData) {
+  // Remove any existing tooltip
+  const existingTooltip = document.getElementById('data-tooltip');
+  if (existingTooltip) {
+    existingTooltip.remove();
+  }
+  
+  // Create the tooltip element
+  const tooltip = document.createElement('div');
+  tooltip.id = 'data-tooltip';
+  tooltip.style.position = 'fixed';
+  tooltip.style.left = '20px';
+  tooltip.style.top = '20%';
+  tooltip.style.maxHeight = '60%';
+  tooltip.style.width = '350px';
+  tooltip.style.backgroundColor = 'rgba(0, 0, 0, 0.85)';
+  tooltip.style.color = 'white';
+  tooltip.style.padding = '15px';
+  tooltip.style.borderRadius = '8px';
+  tooltip.style.zIndex = '10000';
+  tooltip.style.overflowY = 'auto';
+  tooltip.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.3)';
+  tooltip.style.fontFamily = 'Arial, sans-serif';
+  tooltip.style.fontSize = '12px';
+  tooltip.style.transition = 'opacity 0.3s';
+  
+  // Add a title
+  const title = document.createElement('h3');
+  title.textContent = 'Datos de la cita - editar en el appointment';
+  title.style.margin = '0 0 10px 0';
+  title.style.borderBottom = '1px solid white';
+  title.style.paddingBottom = '5px';
+  title.style.textAlign = 'center';
+  tooltip.appendChild(title);
+  
+  // Add close button
+  const closeBtn = document.createElement('div');
+  closeBtn.textContent = '✕';
+  closeBtn.style.position = 'absolute';
+  closeBtn.style.top = '10px';
+  closeBtn.style.right = '10px';
+  closeBtn.style.cursor = 'pointer';
+  closeBtn.style.fontSize = '16px';
+  closeBtn.style.fontWeight = 'bold';
+  closeBtn.onclick = () => {
+    tooltip.style.opacity = '0';
+    setTimeout(() => tooltip.remove(), 300);
+  };
+  tooltip.appendChild(closeBtn);
+  
+  // Create a table for the data
+  const table = document.createElement('table');
+  table.style.width = '100%';
+  table.style.borderCollapse = 'collapse';
+  
+  // Add table headers
+  const thead = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  
+  ['Dato', 'Valor'].forEach(headerText => {
+    const th = document.createElement('th');
+    th.textContent = headerText;
+    th.style.textAlign = 'left';
+    th.style.padding = '5px';
+    th.style.borderBottom = '1px solid #444';
+    headerRow.appendChild(th);
+  });
+  
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+  
+  // Create table body
+  const tbody = document.createElement('tbody');
+  
+  // Add a row for each piece of data
+  let hasValues = false;
+  
+  // Filter to only show items with values
+  const populatedData = parsedData.filter(item => item.value.trim() !== '');
+  
+  if (populatedData.length > 0) {
+    hasValues = true;
+    populatedData.forEach(item => {
+      const row = document.createElement('tr');
+      
+      // Label cell
+      const labelCell = document.createElement('td');
+      labelCell.textContent = item.label;
+      labelCell.style.padding = '4px';
+      labelCell.style.borderBottom = '1px solid #333';
+      labelCell.style.fontWeight = 'bold';
+      
+      // Value cell
+      const valueCell = document.createElement('td');
+      valueCell.textContent = item.value;
+      valueCell.style.padding = '4px';
+      valueCell.style.borderBottom = '1px solid #333';
+      valueCell.style.wordBreak = 'break-word';
+      
+      row.appendChild(labelCell);
+      row.appendChild(valueCell);
+      tbody.appendChild(row);
+    });
+  }
+  
+  // If no data was found, show a message
+  if (!hasValues) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 2;
+    cell.textContent = 'No se encontraron datos etiquetados en los comentarios';
+    cell.style.padding = '10px';
+    cell.style.textAlign = 'center';
+    cell.style.fontStyle = 'italic';
+    row.appendChild(cell);
+    tbody.appendChild(row);
+  }
+  
+  table.appendChild(tbody);
+  tooltip.appendChild(table);
+  
+  // Add the tooltip to the page
+  document.body.appendChild(tooltip);
+  
+  // Fade in the tooltip
+  setTimeout(() => {
+    tooltip.style.opacity = '1';
+  }, 10);
+
+  // Add a minimize/expand button
+  const toggleBtn = document.createElement('div');
+  toggleBtn.textContent = '▼';
+  toggleBtn.style.position = 'absolute';
+  toggleBtn.style.top = '10px';
+  toggleBtn.style.left = '50%';
+  toggleBtn.style.transform = 'translateX(-50%)';
+  toggleBtn.style.cursor = 'pointer';
+  toggleBtn.style.fontSize = '16px';
+  
+  let minimized = false;
+  toggleBtn.onclick = () => {
+    if (minimized) {
+      // Expand
+      tooltip.style.height = 'auto';
+      tooltip.style.maxHeight = '60%';
+      table.style.display = 'table';
+      toggleBtn.textContent = '▼';
+      minimized = false;
+    } else {
+      // Minimize
+      tooltip.style.height = '30px';
+      tooltip.style.overflow = 'hidden';
+      table.style.display = 'none';
+      toggleBtn.textContent = '▲';
+      minimized = true;
+    }
+  };
+  
+  tooltip.appendChild(toggleBtn);
+}
+
+// Function to parse the comentarios text
+// Function to parse the comentarios text
+// Function to parse the comentarios text
+function parseComentarios(comentariosText) {
+  const result = [];
+  
+  if (!comentariosText) {
+    return result;
+  }
+  
+  // Go through each mapping and try to extract the value
+  tagMapping.forEach(mapping => {
+    // Fix: Use string concatenation instead of template literals in RegExp
+    const regex = new RegExp('<' + mapping.tag + '>(.*?)<\/' + mapping.tag + '>', 'i');
+    const match = comentariosText.match(regex);
+    
+    result.push({
+      tag: mapping.tag,
+      label: mapping.label,
+      value: match ? match[1].trim() : ''
+    });
+  });
+  
+  return result;
+}
+
+// Main function 
+async function autoFillForm() {
+  try {
+    console.log("Starting auto-fill process...");
+    
+    // 1. Get the value from the Comentarios field
+    console.log("Waiting for Comentarios field...");
+    let comentariosField;
+    try {
+      comentariosField = await waitForElement('textarea#comments_arrival', 15000);
+    } catch (error) {
+      console.error("Could not find Comentarios field:", error);
+      return;
+    }
+    
+    const comentariosText = comentariosField.value;
+    console.log(`Comentarios text: "\${comentariosText}"`);
+    
+    // Parse the comentarios text
+    const parsedData = parseComentarios(comentariosText);
+    console.log("Parsed data:", parsedData);
+    
+    // Create/update the tooltip with the parsed data
+    createOrUpdateTooltip(parsedData);
+    
+    // 1. Select "Tráiler" option from the dropdown in "Tipo" 
+    console.log("Looking for Tipo dropdown...");
+    const tipoDropdown = await waitForElement('ml-select[name="asset_type_arrival"] .dropdown-btn');
+    console.log("Found Tipo dropdown, clicking to open...");
+    tipoDropdown.click();
+
+    // Wait longer for the dropdown to fully open and initialize
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    console.log("Waiting for dropdown options to appear...");
+    await waitForElement('ml-select[name="asset_type_arrival"] .dropdown-list:not([hidden])');
+
+    // Try multiple ways to find and click the Tráiler option
+    console.log("Looking for 'Tráiler' option...");
+    let trailerOption = null;
+    
+    // Method 1: Find by text content in span
+    const allOptions = document.querySelectorAll('ml-select[name="asset_type_arrival"] .multiselect-item-text span');
+    console.log(`Found \${allOptions.length} options to check`);
+    
+    for (const option of allOptions) {
+      console.log(`Option text: "\${option.textContent.trim()}"`);
+      if (option.textContent.trim() === 'Tráiler' || option.textContent.trim() === 'Trailer') {
+        trailerOption = option;
+        console.log("Found exact match for Tráiler/Trailer");
+        break;
+      }
+    }
+    
+    // Method 2: If not found, try a more flexible approach
+    if (!trailerOption) {
+      console.log("Trying partial match...");
+      for (const option of allOptions) {
+        if (option.textContent.trim().toLowerCase().includes('trail')) {
+          trailerOption = option;
+          console.log(`Found partial match: "\${option.textContent.trim()}"`);
+          break;
+        }
+      }
+    }
+    
+    // Method 3: If still not found, try to get the parent <li> element
+    if (!trailerOption) {
+      console.log("Trying to find parent list item...");
+      const listItems = document.querySelectorAll('ml-select[name="asset_type_arrival"] .dropdown-list li');
+      for (const item of listItems) {
+        if (item.textContent.trim().toLowerCase().includes('trail')) {
+          trailerOption = item;
+          console.log(`Found list item: "\${item.textContent.trim()}"`);
+          break;
+        }
+      }
+    }
+
+    if (trailerOption) {
+      console.log("Clicking on Tráiler option...");
+      trailerOption.click();
+      // Wait for the dropdown to close and selection to register
+      await new Promise(resolve => setTimeout(resolve, 300));
+    } else {
+      console.warn("Could not find Tráiler option in the dropdown");
+    }
+
+    // Fill in Sellar 1 field
+    let sellar1Value = '';
+    const s1Match = comentariosText.match(/<[sS]1>(.*?)<\/[sS]1>/);
+    if (s1Match && s1Match[1]) {
+      sellar1Value = s1Match[1];
+      console.log(`Found Sellar 1 value: "\${sellar1Value}"`);
+      
+      const sellar1Field = await waitForElement('input[name="seal1_arrival_gate"]');
+      sellar1Field.value = sellar1Value;
+
+      // Trigger multiple events to ensure change is recognized
+      sellar1Field.dispatchEvent(new Event('input', { bubbles: true }));
+      sellar1Field.dispatchEvent(new Event('change', { bubbles: true }));
+      sellar1Field.dispatchEvent(new Event('blur', { bubbles: true }));
+    }
+
+    // Fill in Cabina # field
+    let cabinaValue = '';
+    const iMatch = comentariosText.match(/<[iI]>(.*?)<\/[iI]>/);
+    if (iMatch && iMatch[1]) {
+      cabinaValue = iMatch[1];
+      console.log(`Found Cabina value: "\${cabinaValue}"`);
+      
+      const cabinaField = await waitForElement('input[name="cab_num_arrival"]');
+      cabinaField.value = cabinaValue;
+
+      // Trigger multiple events to ensure change is recognized
+      cabinaField.dispatchEvent(new Event('input', { bubbles: true }));
+      cabinaField.dispatchEvent(new Event('change', { bubbles: true }));
+      cabinaField.dispatchEvent(new Event('blur', { bubbles: true }));
+    }
+
+    console.log("Form auto-fill completed successfully");
+
+  } catch (error) {
+    console.error("Error in autoFillForm:", error);
+  }
+}
+
+// Add some CSS to the page for the tooltip animations
+function addCSS() {
+  const style = document.createElement('style');
+  style.textContent = `
+    #data-tooltip {
+      opacity: 0;
+      transition: opacity 0.3s, height 0.3s;
+    }
+    #data-tooltip tr:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+// Add the CSS when the script runs
+addCSS();
+
+// Setup for monitoring "Llegada" button clicks
+function setupLlegadaButtonListener() {
+  // We need to monitor for these buttons continuously as they may be added/removed from the DOM
+  document.addEventListener('click', function(event) {
+    // Check if the clicked element is a "Llegada" button
+    if (event.target && event.target.textContent && event.target.textContent.trim() === 'Llegada') {
+      console.log("Llegada button clicked!");
+      
+      // The form doesn't open immediately, so we need to wait a bit
+      setTimeout(() => {
+        // Check if the form is open by looking for its key elements
+        const comentariosElement = document.querySelector('textarea#comments_arrival');
+        if (comentariosElement) {
+          console.log("Form is now open, starting auto-fill...");
+          autoFillForm();
+        } else {
+          console.log("Form not found after clicking Llegada button, waiting longer...");
+          
+          // Try again after a longer delay
+          setTimeout(() => {
+            if (document.querySelector('textarea#comments_arrival')) {
+              console.log("Form found after extended wait, starting auto-fill...");
+              autoFillForm();
+            } else {
+              console.error("Form element still not found after extended wait");
+            }
+          }, 1500); // Extended wait time
+        }
+      }, 500); // Initial wait time
+    }
+  }, true); // Using capture phase to get the event as early as possible
+}
+
+// Also monitor for DOM changes to catch when forms are added dynamically
+function setupDOMObserver() {
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+        // Check if a form with the Comentarios field was added
+        if (document.querySelector('textarea#comments_arrival') && 
+            !document.getElementById('data-tooltip')) {
+          console.log("Form detected via DOM mutation, starting auto-fill...");
+          autoFillForm();
+          break;
+        }
+      }
+    }
+  });
+
+  // Start observing the document body for changes
+  observer.observe(document.body, { 
+    childList: true, 
+    subtree: true 
+  });
+}
+
+// Initialize the listeners and observers
+function init() {
+  console.log("Initializing auto-fill script...");
+  
+  // Set up the click listener for the Llegada button
+  setupLlegadaButtonListener();
+  
+  // Set up the DOM observer
+  setupDOMObserver();
+  
+  // Check if the form is already open
+  if (document.querySelector('textarea#comments_arrival')) {
+    console.log("Form already open on page load, starting auto-fill...");
+    autoFillForm();
+  }
+}
+
+// Run the initialization when the page is fully loaded
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+  init();
+} else {
+  document.addEventListener('DOMContentLoaded', init);
+}
+
+console.log("Auto-fill script loaded successfully");
