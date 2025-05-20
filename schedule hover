@@ -1,4 +1,4 @@
-//schedule hover v2
+//schedule hover v2.5
 //https://yardaptm-na12.voc.project44.com/schedule
 
 (function() {
@@ -94,26 +94,33 @@ document.body.appendChild(tooltip);
   // Add hover event listeners
   document.addEventListener('mouseover', function(e) {
     const target = e.target;
-    
+  
     // Check if the hovered element is the target element
     if (target.classList.contains('dhx_cal_event_line')) {
       currentHoveredElement = target;
       
-      // Look for the ID in the element with class "text-uppercase font-weight-bold"
+      // Primary approach: Get the ID directly from the milestone_ div's ID attribute
       let rawShipmentId;
+      const contentDiv = target.querySelector('div[id^="milestone_"]');
       
-      // First, check if the element exists within the hovered element
-      const idElement = target.querySelector('.text-uppercase');
-      
-      if (idElement) {
-        // Extract the ID from the element's text content
-        rawShipmentId = idElement.textContent.trim();
+      if (contentDiv && contentDiv.id) {
+        // Extract the entire ID after "milestone_"
+        rawShipmentId = contentDiv.id.replace('milestone_', '');
+        console.log('Found ID in milestone attribute:', rawShipmentId);
       } else {
-        // Fallback: Check if the hovered element itself has the class
-        if (target.classList.contains('text-uppercase') && target.classList.contains('font-weight-bold')) {
-          rawShipmentId = target.textContent.trim();
+        // Fallback: Look for ID in the element with class "text-uppercase font-weight-bold"
+        const idElement = target.querySelector('.text-uppercase');
+        
+        if (idElement) {
+          // Just get the numeric part before any spaces or special characters
+          const match = idElement.textContent.match(/[#]?(\d+)/);
+          if (match && match[1]) {
+            rawShipmentId = match[1];
+          } else {
+            rawShipmentId = idElement.textContent.trim();
+          }
         } else {
-          // Use a default ID or try to get it from data attribute as fallback
+          // Last resort fallback
           rawShipmentId = target.getAttribute('data-id') || 'default-id';
         }
       }
@@ -152,18 +159,14 @@ document.body.appendChild(tooltip);
         .catch(error => {
           console.error('Error fetching shipment data:', error);
         });
-
-
-
-      
-      // Get the site from the URL or another appropriate source
-      // For example, extracting from URL path
-      
-      
+  
       // Make separate incidents history request
       fetchIncidentsHistory(shipmentId, site);
     }
   });
+
+
+
 
   document.addEventListener('mouseout', function(e) {
     if (e.target.classList.contains('dhx_cal_event_line')) {
