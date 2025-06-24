@@ -1,0 +1,814 @@
+//carrier appointment update v1
+//https://yardaptm-na12.voc.project44.com/appointment-manager
+
+
+// Main script to handle P44 appointment updates
+(function() {
+  // Global variables for authentication
+  let authorizationHeader = '';
+  let dataTable = null;
+  let modalOpen = false;
+  
+  // Store original fetch and XMLHttpRequest methods
+  const originalFetch = window.fetch;
+  const originalOpen = XMLHttpRequest.prototype.open;
+  const originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
+  
+  // Override fetch to capture auth headers
+  window.fetch = async function(url, options) {
+    console.log('Intercepted fetch call to:', url);
+    
+    // Check if this is a P44 API request
+    if (url && url.includes('yardaptm-na12.api.project44.com')) {
+      if (options && options.headers) {
+        // Extract from Headers object if it's one
+        if (options.headers instanceof Headers) {
+          authorizationHeader = options.headers.get('Authorization');
+        } 
+        // Extract from plain object
+        else if (typeof options.headers === 'object') {
+          const headerKey = Object.keys(options.headers)
+            .find(key => key.toLowerCase() === 'authorization');
+          if (headerKey) {
+            authorizationHeader = options.headers[headerKey];
+          }
+        }
+        
+        if (authorizationHeader) {
+          console.log('✅ Authorization header captured from fetch!');
+          console.log('Header value:', authorizationHeader);
+        }
+      }
+    }
+    
+    // Call the original fetch
+    return originalFetch.apply(this, arguments);
+  };
+  
+  // Also intercept XMLHttpRequest
+  XMLHttpRequest.prototype.open = function(method, url) {
+    this._url = url;
+    return originalOpen.apply(this, arguments);
+  };
+  
+  XMLHttpRequest.prototype.setRequestHeader = function(header, value) {
+    if (this._url && this._url.includes('yardaptm-na12.api.project44.com')) {
+      if (header.toLowerCase() === 'authorization') {
+        authorizationHeader = value;
+        console.log('✅ Authorization header captured from XHR!');
+        console.log('Header value:', authorizationHeader);
+      }
+    }
+    return originalSetRequestHeader.apply(this, arguments);
+  };
+
+  // Sample data for testing (can be removed in production)
+  const sampleData = [
+    {
+      'SHIPMENT ID': '10700676_1',
+      'DRIVER NAME': 'John Doe',
+      'DRIVER PHONE': '5551234567',
+      'TRAILER ID': 'TRAILER001',
+      'TRAILER PLATE': 'ABC123',
+      'COMMENT': 'Test comment'
+    }
+  ];
+
+  // Create main button
+  function createMainButton() {
+    const button = document.createElement('button');
+    button.textContent = 'Actualizar P44';
+    button.style.cssText = 
+      'position: fixed;' +
+      'top: 10px;' +
+      'left: 50%;' +
+      'transform: translateX(-50%);' +
+      'z-index: 10000;' +
+      'padding: 10px 20px;' +
+      'background-color: #4CAF50;' +
+      'color: white;' +
+      'border: none;' +
+      'border-radius: 5px;' +
+      'cursor: pointer;' +
+      'font-size: 16px;' +
+      'font-weight: bold;';
+    
+    button.addEventListener('click', () => {
+      if (!modalOpen) {
+        openModal();
+      }
+    });
+    
+    document.body.appendChild(button);
+  }
+
+  // Create and open modal with data entry form
+  async function openModal() {
+    modalOpen = true;
+    
+    // Create modal container
+    const modalContainer = document.createElement('div');
+    modalContainer.style.cssText = 
+      'position: fixed;' +
+      'top: 0;' +
+      'left: 0;' +
+      'width: 100%;' +
+      'height: 100%;' +
+      'background-color: rgba(0, 0, 0, 0.7);' +
+      'z-index: 10001;' +
+      'display: flex;' +
+      'flex-direction: column;' +
+      'justify-content: flex-start;' +
+      'align-items: center;' +
+      'overflow-y: auto;';
+    
+    // Create modal content
+    const modalContent = document.createElement('div');
+    modalContent.style.cssText = 
+      'background-color: white;' +
+      'width: 90%;' +
+      'margin-top: 50px;' +
+      'margin-bottom: 50px;' +
+      'border-radius: 10px;' +
+      'padding: 20px;' +
+      'box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);' +
+      'position: relative;';
+    
+    // Create close button
+    const closeButton = document.createElement('button');
+    closeButton.innerHTML = '&times;';
+    closeButton.style.cssText = 
+      'position: absolute;' +
+      'top: 10px;' +
+      'right: 15px;' +
+      'font-size: 24px;' +
+      'background: none;' +
+      'border: none;' +
+      'cursor: pointer;' +
+      'color: #333;';
+    closeButton.addEventListener('click', () => {
+      document.body.removeChild(modalContainer);
+      modalOpen = false;
+    });
+    
+    // Create header
+    const header = document.createElement('h2');
+    header.textContent = 'Actualizar información en P44';
+    header.style.cssText = 
+      'text-align: center;' +
+      'margin-bottom: 20px;';
+    
+    // Create update all button
+    const updateAllButton = document.createElement('button');
+    updateAllButton.textContent = 'Actualizar información en P44';
+    updateAllButton.style.cssText = 
+      'padding: 10px 20px;' +
+      'background-color: #4CAF50;' +
+      'color: white;' +
+      'border: none;' +
+      'border-radius: 5px;' +
+      'cursor: pointer;' +
+      'margin-bottom: 20px;' +
+      'font-size: 16px;';
+    updateAllButton.addEventListener('click', () => processAllRows());
+    
+    // Create status message
+    const statusMessage = document.createElement('div');
+    statusMessage.style.cssText = 
+      'margin: 10px 0;' +
+      'padding: 10px;' +
+      'border-radius: 5px;' +
+      'display: none;';
+    
+    // Create CSV import section
+    const csvSection = document.createElement('div');
+    csvSection.style.cssText = 
+      'width: 100%;' +
+      'padding: 15px;' +
+      'background-color: #f8f9fa;' +
+      'border-radius: 5px;' +
+      'margin-bottom: 20px;';
+    
+    const csvLabel = document.createElement('label');
+    csvLabel.textContent = 'Importar datos desde CSV o Excel:';
+    csvLabel.style.display = 'block';
+    csvLabel.style.marginBottom = '10px';
+    
+    const csvInput = document.createElement('input');
+    csvInput.type = 'file';
+    csvInput.accept = '.csv, .xlsx, .xls, text/csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    csvInput.style.marginBottom = '10px';
+    
+    const csvButton = document.createElement('button');
+    csvButton.textContent = 'Importar';
+    csvButton.style.cssText = 
+      'padding: 5px 10px;' +
+      'background-color: #007bff;' +
+      'color: white;' +
+      'border: none;' +
+      'border-radius: 3px;' +
+      'cursor: pointer;';
+    
+    csvButton.addEventListener('click', () => {
+      if (csvInput.files && csvInput.files[0]) {
+        const file = csvInput.files[0];
+        const reader = new FileReader();
+        
+        reader.onload = function(e) {
+          try {
+            const content = e.target.result;
+            const importedData = parseCSV(content);
+            dataTable = importedData;
+            updateTable(tableContainer);
+            showStatus(statusMessage, 'Datos importados correctamente', false);
+          } catch (error) {
+            showStatus(statusMessage, 'Error al importar: ' + error.message, true);
+          }
+        };
+        
+        reader.readAsText(file);
+      } else {
+        showStatus(statusMessage, 'Por favor selecciona un archivo primero', true);
+      }
+    });
+    
+    csvSection.appendChild(csvLabel);
+    csvSection.appendChild(csvInput);
+    csvSection.appendChild(csvButton);
+    
+    // Create table container
+    const tableContainer = document.createElement('div');
+    tableContainer.style.cssText = 
+      'width: 100%;' +
+      'overflow-x: auto;';
+    
+    // Append elements to modal
+    modalContent.appendChild(closeButton);
+    modalContent.appendChild(header);
+    modalContent.appendChild(updateAllButton);
+    modalContent.appendChild(statusMessage);
+    modalContent.appendChild(csvSection);
+    modalContent.appendChild(createDataEntryForm(statusMessage, tableContainer));
+    modalContent.appendChild(tableContainer);
+    modalContainer.appendChild(modalContent);
+    document.body.appendChild(modalContainer);
+    
+    // Initialize with empty or sample data
+    dataTable = [];
+    createTable(tableContainer, dataTable, statusMessage);
+  }
+  
+  // Parse CSV content
+  function parseCSV(content) {
+    // Simple CSV parsing
+    const lines = content.split('\n');
+    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+    
+    return lines.slice(1).filter(line => line.trim()).map(line => {
+      const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
+      const row = {};
+      
+      headers.forEach((header, index) => {
+        // Map to our expected headers
+        switch (header.toUpperCase()) {
+          case 'SHIPMENT ID':
+          case 'ID':
+          case 'SHIPMENT':
+            row['SHIPMENT ID'] = values[index] || '';
+            break;
+          case 'DRIVER NAME':
+          case 'DRIVER':
+          case 'NAME':
+            row['DRIVER NAME'] = values[index] || '';
+            break;
+          case 'DRIVER PHONE':
+          case 'PHONE':
+          case 'TELEPHONE':
+            row['DRIVER PHONE'] = values[index] || '';
+            break;
+          case 'TRAILER ID':
+          case 'TRAILER':
+            row['TRAILER ID'] = values[index] || '';
+            break;
+          case 'TRAILER PLATE':
+          case 'PLATE':
+            row['TRAILER PLATE'] = values[index] || '';
+            break;
+          case 'COMMENT':
+          case 'COMMENTS':
+          case 'NOTA':
+            row['COMMENT'] = values[index] || '';
+            break;
+          default:
+            // If header doesn't match, add it with its original name
+            row[header] = values[index] || '';
+        }
+      });
+      
+      return row;
+    });
+  }
+  
+  // Create data entry form
+  function createDataEntryForm(statusElement, tableContainer) {
+    const formWrapper = document.createElement('div');
+    formWrapper.style.cssText = 
+      'width: 100%;' +
+      'padding: 20px;' +
+      'border: 1px solid #ddd;' +
+      'border-radius: 5px;' +
+      'margin-bottom: 20px;';
+    
+    const formTitle = document.createElement('h3');
+    formTitle.textContent = 'Agregar registro manualmente:';
+    formTitle.style.marginBottom = '15px';
+    
+    // Create fields
+    const fields = [
+      { id: 'shipment_id', label: 'SHIPMENT ID' },
+      { id: 'driver_name', label: 'DRIVER NAME' },
+      { id: 'driver_phone', label: 'DRIVER PHONE' },
+      { id: 'trailer_id', label: 'TRAILER ID' },
+      { id: 'trailer_plate', label: 'TRAILER PLATE' },
+      { id: 'comment', label: 'COMMENT' }
+    ];
+    
+    const fieldsContainer = document.createElement('div');
+    fieldsContainer.style.display = 'flex';
+    fieldsContainer.style.flexWrap = 'wrap';
+    fieldsContainer.style.gap = '10px';
+    
+    const inputFields = [];
+    fields.forEach(field => {
+      const fieldDiv = document.createElement('div');
+      fieldDiv.style.cssText = 
+        'flex: 1;' +
+        'min-width: 200px;';
+      
+      const label = document.createElement('label');
+      label.textContent = field.label;
+      label.style.display = 'block';
+      label.setAttribute('for', field.id);
+      
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.id = field.id;
+      input.style.cssText = 
+        'width: 100%;' +
+        'padding: 8px;' +
+        'border: 1px solid #ddd;' +
+        'border-radius: 4px;';
+      
+      fieldDiv.appendChild(label);
+      fieldDiv.appendChild(input);
+      fieldsContainer.appendChild(fieldDiv);
+      inputFields.push(input);
+    });
+    
+    // Add button
+    const addButton = document.createElement('button');
+    addButton.textContent = 'Agregar Entrada';
+    addButton.style.cssText = 
+      'padding: 10px 20px;' +
+      'background-color: #007bff;' +
+      'color: white;' +
+      'border: none;' +
+      'border-radius: 5px;' +
+      'cursor: pointer;' +
+      'margin-top: 15px;' +
+      'display: block;';
+    
+    addButton.addEventListener('click', () => {
+      const newRow = {};
+      fields.forEach((field, index) => {
+        newRow[field.label] = inputFields[index].value;
+      });
+      
+      if (!newRow['SHIPMENT ID']) {
+        showStatus(statusElement, 'Error: El campo SHIPMENT ID es obligatorio', true);
+        return;
+      }
+      
+      if (!dataTable) dataTable = [];
+      dataTable.push(newRow);
+      
+      // Clear inputs
+      inputFields.forEach(input => input.value = '');
+      
+      // Update table
+      updateTable(tableContainer);
+      showStatus(statusElement, 'Entrada agregada correctamente', false);
+    });
+    
+    formWrapper.appendChild(formTitle);
+    formWrapper.appendChild(fieldsContainer);
+    formWrapper.appendChild(addButton);
+    
+    return formWrapper;
+  }
+  
+  // Show status message
+  function showStatus(element, message, isError) {
+    element.textContent = message;
+    element.style.backgroundColor = isError ? '#f8d7da' : '#d4edda';
+    element.style.color = isError ? '#721c24' : '#155724';
+    element.style.display = 'block';
+    
+    setTimeout(() => {
+      element.style.display = 'none';
+    }, 5000);
+  }
+  
+  // Update table with data
+  function updateTable(container) {
+    container.innerHTML = '';
+    createTable(container, dataTable);
+  }
+  
+  // Create data table
+  function createTable(container, data, statusElement) {
+    if (!data || data.length === 0) {
+      container.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">No hay datos disponibles. Agrega registros manualmente o importa un CSV.</div>';
+      return;
+    }
+    
+    // Create table element
+    const table = document.createElement('table');
+    table.style.cssText = 
+      'width: 100%;' +
+      'border-collapse: collapse;' +
+      'margin-bottom: 20px;';
+    
+    // Create header row
+    const thead = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+    
+    const headers = ['SHIPMENT ID', 'DRIVER NAME', 'DRIVER PHONE', 'TRAILER ID', 'TRAILER PLATE', 'COMMENT', 'RESULTADO', 'ACCIÓN'];
+    
+    headers.forEach(header => {
+      const th = document.createElement('th');
+      th.textContent = header;
+      th.style.cssText = 
+        'padding: 12px;' +
+        'text-align: left;' +
+        'background-color: #f2f2f2;' +
+        'border: 1px solid #ddd;';
+      headerRow.appendChild(th);
+    });
+    
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+    
+    // Create table body
+    const tbody = document.createElement('tbody');
+    
+    data.forEach((row, index) => {
+      const tr = document.createElement('tr');
+      tr.style.backgroundColor = index % 2 === 0 ? '#f9f9f9' : 'white';
+      
+      // Create cells for each column
+      const shipmentCell = createCell(row['SHIPMENT ID'] || '');
+      const driverNameCell = createCell(row['DRIVER NAME'] || '');
+      const driverPhoneCell = createCell(row['DRIVER PHONE'] || '');
+      const trailerIdCell = createCell(row['TRAILER ID'] || '');
+      const trailerPlateCell = createCell(row['TRAILER PLATE'] || '');
+      const commentCell = createCell(row['COMMENT'] || '');
+      
+      // Create result cell
+      const resultCell = document.createElement('td');
+      resultCell.style.cssText = 
+        'padding: 8px;' +
+        'border: 1px solid #ddd;';
+      resultCell.id = 'result-' + index;
+      
+      // Create action button
+      const actionCell = document.createElement('td');
+      actionCell.style.cssText = 
+        'padding: 8px;' +
+        'border: 1px solid #ddd;' +
+        'text-align: center;';
+      
+      const actionButton = document.createElement('button');
+      actionButton.innerHTML = '▶️';
+      actionButton.title = 'Procesar este registro';
+      actionButton.style.cssText = 
+        'background: none;' +
+        'border: none;' +
+        'cursor: pointer;' +
+        'font-size: 18px;';
+      actionButton.addEventListener('click', () => processRow(index, statusElement));
+      
+      // Add delete button
+      const deleteButton = document.createElement('button');
+      deleteButton.innerHTML = '🗑️';
+      deleteButton.title = 'Eliminar este registro';
+      deleteButton.style.cssText = 
+        'background: none;' +
+        'border: none;' +
+        'cursor: pointer;' +
+        'font-size: 18px;' +
+        'margin-left: 5px;';
+      deleteButton.addEventListener('click', () => {
+        dataTable.splice(index, 1);
+        updateTable(container);
+        if (statusElement) {
+          showStatus(statusElement, 'Registro eliminado', false);
+        }
+      });
+      
+      actionCell.appendChild(actionButton);
+      actionCell.appendChild(deleteButton);
+      
+      // Append all cells to row
+      tr.appendChild(shipmentCell);
+      tr.appendChild(driverNameCell);
+      tr.appendChild(driverPhoneCell);
+      tr.appendChild(trailerIdCell);
+      tr.appendChild(trailerPlateCell);
+      tr.appendChild(commentCell);
+      tr.appendChild(resultCell);
+      tr.appendChild(actionCell);
+      
+      tbody.appendChild(tr);
+    });
+    
+    table.appendChild(tbody);
+    container.appendChild(table);
+  }
+  
+  // Create table cell
+  function createCell(text) {
+    const cell = document.createElement('td');
+    cell.textContent = text;
+    cell.style.cssText = 
+      'padding: 8px;' +
+      'border: 1px solid #ddd;';
+    return cell;
+  }
+  
+  // Process all rows in the table
+  async function processAllRows() {
+    if (!dataTable || dataTable.length === 0) {
+      return;
+    }
+    
+    for (let i = 0; i < dataTable.length; i++) {
+      await processRow(i);
+    }
+  }
+  
+  // Process a single row
+  async function processRow(index, statusElement) {
+    if (!dataTable || !dataTable[index]) {
+      return;
+    }
+    
+    const row = dataTable[index];
+    const shipmentId = row['SHIPMENT ID'];
+    
+    if (!shipmentId) {
+      updateResultCell(index, 'Error: No hay ID de envío', true);
+      return;
+    }
+    
+    try {
+      // Check if we have auth header before proceeding
+      if (!authorizationHeader) {
+        console.error('Authentication missing. Authorization header is empty.');
+        updateResultCell(index, 'Error: No autenticación. Por favor navega a P44 primero.', true);
+        throw new Error('No authentication data found. Please navigate to P44 first.');
+      }
+      
+      // First get the appointment information
+      updateResultCell(index, 'Obteniendo información...', false);
+      
+      const shipmentData = await getShipmentInfo(shipmentId);
+      if (!shipmentData) {
+        updateResultCell(index, 'Error: No se encontró el envío', true);
+        return;
+      }
+      
+      // Update with data from spreadsheet
+      const updatedData = Object.assign({}, shipmentData);
+      updatedData.driver_name = row['DRIVER NAME'] || shipmentData.driver_name;
+      updatedData.driver_cell_no = row['DRIVER PHONE'] || shipmentData.driver_cell_no;
+      updatedData.trailer = row['TRAILER ID'] || shipmentData.trailer;
+      updatedData.license_plate_no = row['TRAILER PLATE'] || shipmentData.license_plate_no;
+      updatedData.comment = row['COMMENT'] || shipmentData.comment;
+      
+      // Update the appointment
+      updateResultCell(index, 'Actualizando...', false);
+      const result = await updateAppointment(shipmentId, updatedData);
+      
+      // Update result cell with status
+      if (result && result.message) {
+        updateResultCell(index, result.message, false);
+      } else {
+        updateResultCell(index, 'Actualizado correctamente', false);
+      }
+    } catch (error) {
+      console.error('Error processing row ' + index + ':', error);
+      updateResultCell(index, 'Error: ' + error.message, true);
+      if (statusElement) {
+        showStatus(statusElement, 'Error procesando fila ' + (index + 1) + ': ' + error.message, true);
+      }
+    }
+  }
+  
+  // Update result cell
+  function updateResultCell(index, message, isError) {
+    const cell = document.getElementById('result-' + index);
+    if (cell) {
+      cell.textContent = message;
+      cell.style.color = isError ? 'red' : 'green';
+    }
+  }
+  
+  // Get shipment information
+  async function getShipmentInfo(shipmentId) {
+    console.log('getShipmentInfo called with auth header:', authorizationHeader);
+    
+    if (!authorizationHeader) {
+      console.error('Authentication missing. Authorization header is empty.');
+      throw new Error('No authentication data found. Please navigate to P44 first.');
+    }
+    
+    const url = 'https://yardaptm-na12.api.project44.com/v1/shipment/search?size=10&page_no=1&search_term=' + encodeURIComponent(shipmentId) + '&service_type=pickup&gateAppt=true';
+    
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': authorizationHeader
+    };
+    
+    console.log('Making API call with headers:', headers);
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: headers,
+      credentials: 'include'
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to get shipment information: ' + response.statusText);
+    }
+    
+    const data = await response.json();
+    
+    if (!data.data || data.data.length === 0) {
+      throw new Error('No shipment found with the provided ID');
+    }
+    
+    return data.data[0];
+  }
+  
+  // Update appointment
+  // Update appointment
+async function updateAppointment(shipmentId, shipmentData) {
+  if (!authorizationHeader) {
+    throw new Error('No authentication data found. Please navigate to P44 first.');
+  }
+  
+  // Use shipmentData.shipment_no instead of shipmentId for the URL
+  const shipmentNo = shipmentData.shipment_no || shipmentId;
+  
+  // Transform the payload to match the working structure
+  const transformedData = {
+    // Copy basic properties
+    shipment_no: shipmentData.shipment_no,
+    site: shipmentData.site,
+    site_name: shipmentData.site_name,
+    status: shipmentData.status,
+    expected_date: shipmentData.expected_date,
+    customer: shipmentData.customer,
+    expected_slot_duration: shipmentData.expected_slot_duration,
+    slot_duration: shipmentData.slot_duration,
+    trailer: shipmentData.trailer,
+    carrier: shipmentData.carrier,
+    load_type: shipmentData.load_type,
+    reference_1: shipmentData.reference_1,
+    reference_2: shipmentData.reference_2,
+    load_information: shipmentData.load_information,
+    service_type: shipmentData.service_type,
+    country_code: shipmentData.country_code,
+    is_scheduled: shipmentData.is_scheduled,
+    section_schedule_id: shipmentData.section_schedule_id,
+    expected_shipment_date: shipmentData.expected_shipment_date,
+    has_gate_appointment: shipmentData.has_gate_appointment,
+    product_type: shipmentData.product_type,
+    additional_labels_reference: shipmentData.additional_labels_reference,
+    additional_labels: shipmentData.additional_labels,
+    slot_range_start_time: shipmentData.slot_range_start_time,
+    slot_range_end_time: shipmentData.slot_range_end_time,
+    uuid: shipmentData.uuid,
+    service_type_name: shipmentData.service_type_name,
+    carrier_name: shipmentData.carrier_name,
+    comment: shipmentData.comment,
+    view_shipment_url: shipmentData.view_shipment_url,
+    order_id: shipmentData.order_id,
+    driver_name: shipmentData.driver_name,
+    driver_cell_no: shipmentData.driver_cell_no,
+    license_plate_no: shipmentData.license_plate_no,
+    on_time_margins_in_minutes: shipmentData.on_time_margins_in_minutes,
+    activity_type: shipmentData.activity_type,
+    carrier_no_show: shipmentData.carrier_no_show,
+    pallet_count: shipmentData.pallet_count,
+    site_offset: shipmentData.site_offset,
+    site_id: shipmentData.site_id,
+    master_shipment_id: shipmentData.master_shipment_id,
+    is_shipment_bookable: shipmentData.is_shipment_bookable,
+    additional_milestones: shipmentData.additional_milestones,
+    
+    // Add properties from second payload that are missing in the first
+    is_booking_approved: true,
+    
+    // Extract fields from the nested schedule object into the top level
+    site_current_time: shipmentData.schedule ? shipmentData.schedule.site_current_time : "",
+    section: shipmentData.schedule ? shipmentData.schedule.section : "",
+    section_name: shipmentData.schedule ? shipmentData.schedule.section_name : "",
+    schedule_date: shipmentData.schedule ? shipmentData.schedule.schedule_date : "",
+    appointment_id: shipmentData.schedule ? shipmentData.schedule.appointment_id : "",
+    start_time: shipmentData.schedule ? shipmentData.schedule.start_time : "",
+    end_time: shipmentData.schedule ? shipmentData.schedule.end_time : "",
+    schedule_start_time: shipmentData.schedule ? shipmentData.schedule.schedule_start_time.substring(0, 16) : "", // Format to match "2025-06-18 03:30"
+    schedule_end_time: shipmentData.schedule ? shipmentData.schedule.schedule_end_time.substring(0, 16) : "", // Format to match "2025-06-18 04:00"
+    scheduled_time: shipmentData.schedule ? shipmentData.schedule.scheduled_time : shipmentData.gate_appointment_time,
+    expected_time: shipmentData.schedule ? shipmentData.schedule.expected_time : "",
+    ext_appointment_id: shipmentData.schedule ? shipmentData.schedule.ext_appointment_id : "",
+    alloted_slot_duration: shipmentData.schedule ? shipmentData.schedule.alloted_slot_duration : shipmentData.expected_slot_duration,
+    
+    // Add additional required fields
+    module_name: "appointment_manager",
+    is_recurrent: false,
+    is_create_schedule: false,
+    is_create_gate_appointment: true,
+    edit_book_appointment: true
+  };
+  
+  // Remove fields that are in the first payload but not in the second
+  delete transformedData.gate_appointment_time;
+  delete transformedData.estimated_arrival_time;
+  delete transformedData.po_id;
+  delete transformedData.other_attributes;
+  delete transformedData.arrival_status;
+  
+  const url = 'https://yardaptm-na12.api.project44.com/v1/shipment/update/gate-appointment-booking/' + encodeURIComponent(shipmentNo);
+  console.log('Making update request to URL:', url);
+  console.log('Sending payload:', JSON.stringify(transformedData));
+  
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': authorizationHeader
+  };
+  
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: headers,
+    body: JSON.stringify(transformedData),
+    credentials: 'include'
+  });
+  
+  if (!response.ok) {
+    throw new Error('Failed to update appointment: ' + response.statusText);
+  }
+  
+  return await response.json();
+}
+  
+  // Initialize
+  function init() {
+    console.log('Script initialized');
+    console.log('Current URL:', window.location.href);
+    console.log('Current authorizationHeader:', authorizationHeader);
+    
+    createMainButton();
+    
+    // Add text to explain auth requirement
+    const infoDiv = document.createElement('div');
+    infoDiv.textContent = 'To use this tool, first navigate to P44 website in this tab to capture authentication data';
+    infoDiv.style.cssText = 
+      'position: fixed;' +
+      'bottom: 10px;' +
+      'left: 50%;' +
+      'transform: translateX(-50%);' +
+      'background-color: #fff8dc;' +
+      'padding: 8px 12px;' +
+      'border-radius: 4px;' +
+      'border: 1px solid #ffd700;' +
+      'font-size: 12px;' +
+      'z-index: 10000;';
+    
+    document.body.appendChild(infoDiv);
+    
+    // Auto-hide the info message after 8 seconds
+    setTimeout(() => {
+      infoDiv.style.display = 'none';
+    }, 8000);
+  }
+  
+  // Wait for page to fully load
+  if (document.readyState === 'complete') {
+    init();
+  } else {
+    window.addEventListener('load', init);
+  }
+})();
