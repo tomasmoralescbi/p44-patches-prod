@@ -1,4 +1,4 @@
-//arrival enhancement v1
+//arrival enhancement v2
 //https://yard-visibility-na12.voc.project44.com/gate/console
 
 
@@ -15,7 +15,7 @@ function waitForElement(selector, timeout = 10000) {
       }
 
       if (Date.now() - startTime > timeout) {
-        reject(new Error(`Element \${selector} not found after \${timeout}ms`));
+        reject(new Error("Element " + selector + " not found after " + timeout + "ms"));
         return;
       }
 
@@ -28,6 +28,8 @@ function waitForElement(selector, timeout = 10000) {
 
 // Define the tag to label mapping
 const tagMapping = [
+  { tag: 'GA', label: 'NUMERO DE GAFETE' },
+  { tag: 'ID', label: 'NUMERO DE IDENTIFICACION' },
   { tag: 'B', label: 'PRIMER NOMBRE DEL OPERADOR' },
   { tag: 'C', label: 'SEGUNDO NOMBRE DEL OPERADOR' },
   { tag: 'D', label: 'PRIMER APELLIDO DEL OPERADOR' },
@@ -62,7 +64,59 @@ const tagMapping = [
   { tag: 'S7', label: 'SELLO 7 (TOLVA GRANELERA)' }
 ];
 
-// Function to create or update the tooltip
+// Map special tags to corresponding form fields
+const specialFieldMappings = {
+  'S1': 'input[name="seal1_arrival_gate"]',
+  'I': 'input[name="cab_num_arrival"]'
+};
+
+// Function to update special form fields when tag values change
+async function updateFormFields(tag, value) {
+  if (specialFieldMappings[tag]) {
+    try {
+      const field = await waitForElement(specialFieldMappings[tag], 2000);
+      if (field && field.value !== value) {
+        field.value = value;
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+        field.dispatchEvent(new Event('change', { bubbles: true }));
+        field.dispatchEvent(new Event('blur', { bubbles: true }));
+      }
+    } catch (error) {
+      console.log("Could not update field for tag " + tag + ": " + error.message);
+    }
+  }
+}
+
+// Function to update the comment field with new tagged data
+function updateCommentField(parsedData) {
+  const comentariosField = document.querySelector('textarea#comments_arrival');
+  if (!comentariosField) return;
+  
+  let comentariosText = comentariosField.value;
+  
+  // Update each tag in the comment text
+  parsedData.forEach(item => {
+    const tagRegex = new RegExp('<' + item.tag + '>(.*?)</' + item.tag + '>', 'i');
+    
+    if (tagRegex.test(comentariosText)) {
+      // Replace existing tag content
+      comentariosText = comentariosText.replace(tagRegex, '<' + item.tag + '>' + item.value + '</' + item.tag + '>');
+    } else if (item.value.trim() !== '') {
+      // Add new tag if it doesn't exist and has a value
+      comentariosText += '\n<' + item.tag + '>' + item.value + '</' + item.tag + '>';
+    }
+    
+    // Update any corresponding form fields
+    updateFormFields(item.tag, item.value);
+  });
+  
+  // Update the field
+  comentariosField.value = comentariosText;
+  comentariosField.dispatchEvent(new Event('input', { bubbles: true }));
+  comentariosField.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+// Function to create or update the tooltip with editable fields
 function createOrUpdateTooltip(parsedData) {
   // Remove any existing tooltip
   const existingTooltip = document.getElementById('data-tooltip');
@@ -77,7 +131,7 @@ function createOrUpdateTooltip(parsedData) {
   tooltip.style.left = '20px';
   tooltip.style.top = '20%';
   tooltip.style.maxHeight = '60%';
-  tooltip.style.width = '350px';
+  tooltip.style.width = '380px';
   tooltip.style.backgroundColor = 'rgba(0, 0, 0, 0.85)';
   tooltip.style.color = 'white';
   tooltip.style.padding = '15px';
@@ -91,7 +145,7 @@ function createOrUpdateTooltip(parsedData) {
   
   // Add a title
   const title = document.createElement('h3');
-  title.textContent = 'Datos de la cita - editar en el appointment';
+  title.textContent = 'Datos de la cita - editar campos';
   title.style.margin = '0 0 10px 0';
   title.style.borderBottom = '1px solid white';
   title.style.paddingBottom = '5px';
@@ -139,29 +193,60 @@ function createOrUpdateTooltip(parsedData) {
   
   // Add a row for each piece of data
   let hasValues = false;
+  const displayAllData = true; // Set to true to display all fields, not just ones with values
   
-  // Filter to only show items with values
-  const populatedData = parsedData.filter(item => item.value.trim() !== '');
+  // Filter data based on preference
+  let displayData = displayAllData ? parsedData : parsedData.filter(item => item.value.trim() !== '');
   
-  if (populatedData.length > 0) {
+  if (displayData.length > 0) {
     hasValues = true;
-    populatedData.forEach(item => {
+    displayData.forEach(item => {
       const row = document.createElement('tr');
+      row.dataset.tag = item.tag;
+      
+      // Highlight special fields that sync with form fields
+      const isSpecialField = specialFieldMappings.hasOwnProperty(item.tag);
+      if (isSpecialField) {
+        row.style.backgroundColor = 'rgba(60, 120, 180, 0.2)';
+      }
       
       // Label cell
       const labelCell = document.createElement('td');
-      labelCell.textContent = item.label;
+      labelCell.textContent = item.label + (isSpecialField ? ' *' : '');
       labelCell.style.padding = '4px';
       labelCell.style.borderBottom = '1px solid #333';
       labelCell.style.fontWeight = 'bold';
+      labelCell.style.fontSize = '11px';
+      labelCell.style.width = '60%';
       
-      // Value cell
+      // Value cell with editable input
       const valueCell = document.createElement('td');
-      valueCell.textContent = item.value;
       valueCell.style.padding = '4px';
       valueCell.style.borderBottom = '1px solid #333';
-      valueCell.style.wordBreak = 'break-word';
+      valueCell.style.width = '40%';
       
+      const input = document.createElement('input');
+      input.type = 'text';
+      // Display value in uppercase
+      input.value = item.value.toUpperCase();
+      input.style.width = '100%';
+      input.style.backgroundColor = isSpecialField ? 'rgba(60, 120, 180, 0.2)' : 'rgba(255, 255, 255, 0.1)';
+      input.style.border = '1px solid #555';
+      input.style.borderRadius = '3px';
+      input.style.padding = '4px';
+      input.style.color = 'white';
+      input.style.fontSize = '11px';
+      input.style.textTransform = 'uppercase'; // Force display as uppercase
+      
+      // Handle input changes - update the comment field
+      input.addEventListener('input', () => {
+        // Update the parsed data (store the actual value, not transformed)
+        item.value = input.value;
+        // Update the comment field
+        updateCommentField(parsedData);
+      });
+      
+      valueCell.appendChild(input);
       row.appendChild(labelCell);
       row.appendChild(valueCell);
       tbody.appendChild(row);
@@ -183,6 +268,55 @@ function createOrUpdateTooltip(parsedData) {
   
   table.appendChild(tbody);
   tooltip.appendChild(table);
+  
+  // Add a note about fields with asterisks
+  if (Object.keys(specialFieldMappings).length > 0) {
+    const noteDiv = document.createElement('div');
+    noteDiv.style.marginTop = '5px';
+    noteDiv.style.fontSize = '10px';
+    noteDiv.style.fontStyle = 'italic';
+    noteDiv.style.color = '#aaa';
+    noteDiv.textContent = '* Estos campos se sincronizan con el formulario';
+    tooltip.appendChild(noteDiv);
+  }
+  
+  // Add search filter
+  const searchDiv = document.createElement('div');
+  searchDiv.style.marginTop = '10px';
+  searchDiv.style.padding = '5px 0';
+  searchDiv.style.borderTop = '1px solid #444';
+  
+  const searchInput = document.createElement('input');
+  searchInput.type = 'text';
+  searchInput.placeholder = 'Buscar...';
+  searchInput.style.width = '100%';
+  searchInput.style.padding = '5px';
+  searchInput.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+  searchInput.style.border = '1px solid #555';
+  searchInput.style.borderRadius = '3px';
+  searchInput.style.color = 'white';
+  
+  // Filter table rows based on search input
+  searchInput.addEventListener('input', () => {
+    const filter = searchInput.value.toLowerCase();
+    const rows = tbody.querySelectorAll('tr');
+    
+    rows.forEach(row => {
+      if (!row.dataset.tag) return; // Skip message row
+      
+      const label = row.cells[0].textContent.toLowerCase();
+      const value = row.cells[1].querySelector('input').value.toLowerCase();
+      
+      if (label.includes(filter) || value.includes(filter)) {
+        row.style.display = '';
+      } else {
+        row.style.display = 'none';
+      }
+    });
+  });
+  
+  searchDiv.appendChild(searchInput);
+  tooltip.appendChild(searchDiv);
   
   // Add the tooltip to the page
   document.body.appendChild(tooltip);
@@ -209,6 +343,7 @@ function createOrUpdateTooltip(parsedData) {
       tooltip.style.height = 'auto';
       tooltip.style.maxHeight = '60%';
       table.style.display = 'table';
+      searchDiv.style.display = 'block';
       toggleBtn.textContent = '▼';
       minimized = false;
     } else {
@@ -216,16 +351,86 @@ function createOrUpdateTooltip(parsedData) {
       tooltip.style.height = '30px';
       tooltip.style.overflow = 'hidden';
       table.style.display = 'none';
+      searchDiv.style.display = 'none';
       toggleBtn.textContent = '▲';
       minimized = true;
     }
   };
   
   tooltip.appendChild(toggleBtn);
+  
+  // Setup comment field monitoring to update the tooltip when comment changes
+  setupCommentMonitoring(parsedData);
+  
+  // Setup form field monitoring for special fields
+  setupFormFieldMonitoring(parsedData);
 }
 
-// Function to parse the comentarios text
-// Function to parse the comentarios text
+// Function to update tooltip input values when comment changes
+function updateTooltipValues(newData) {
+  const tooltip = document.getElementById('data-tooltip');
+  if (!tooltip) return;
+  
+  newData.forEach(item => {
+    const row = tooltip.querySelector('tr[data-tag="' + item.tag + '"]');
+    if (row) {
+      const input = row.cells[1].querySelector('input');
+      if (input && input.value !== item.value) {
+        // Display value in uppercase
+        input.value = item.value.toUpperCase();
+      }
+    }
+  });
+}
+
+// Function to monitor the comments field for changes
+function setupCommentMonitoring(parsedData) {
+  const comentariosField = document.querySelector('textarea#comments_arrival');
+  if (!comentariosField) return;
+  
+  // Use MutationObserver to detect value changes
+  const observer = new MutationObserver(() => {
+    const newParsedData = parseComentarios(comentariosField.value);
+    updateTooltipValues(newParsedData);
+  });
+  
+  observer.observe(comentariosField, { 
+    attributes: true, 
+    attributeFilter: ['value'] 
+  });
+  
+  // Also listen for direct input events
+  comentariosField.addEventListener('input', () => {
+    const newParsedData = parseComentarios(comentariosField.value);
+    updateTooltipValues(newParsedData);
+  });
+}
+
+// Function to monitor special form fields for changes
+function setupFormFieldMonitoring(parsedData) {
+  // For each special field mapping
+  Object.entries(specialFieldMappings).forEach(([tag, selector]) => {
+    const field = document.querySelector(selector);
+    if (!field) return;
+    
+    // Listen for changes on the form field
+    field.addEventListener('input', () => {
+      // Find the corresponding item in parsedData
+      const item = parsedData.find(d => d.tag.toUpperCase() === tag.toUpperCase());
+      if (item && item.value !== field.value) {
+        // Update the parsedData
+        item.value = field.value;
+        
+        // Update tooltip display
+        updateTooltipValues([item]);
+        
+        // Update the comment field
+        updateCommentField(parsedData);
+      }
+    });
+  });
+}
+
 // Function to parse the comentarios text
 function parseComentarios(comentariosText) {
   const result = [];
@@ -250,6 +455,39 @@ function parseComentarios(comentariosText) {
   return result;
 }
 
+// Function to check all checkboxes
+async function checkAllCheckboxes() {
+  try {
+    console.log("Checking all checkboxes...");
+    
+    // Find all checkboxes in the form
+    const checkboxInputs = document.querySelectorAll('input[name="status"][type="checkbox"]');
+    
+    if (checkboxInputs.length === 0) {
+      console.log("No checkboxes found");
+      return;
+    }
+    
+    console.log(`Found \${checkboxInputs.length} checkboxes to check`);
+    
+    // Check each checkbox
+    checkboxInputs.forEach((checkbox, index) => {
+      if (!checkbox.checked) {
+        console.log(`Checking checkbox \${index + 1}: \${checkbox.id}`);
+        checkbox.checked = true;
+        
+        // Trigger events to ensure Angular detects the change
+        checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+        checkbox.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+    
+    console.log("All checkboxes checked successfully");
+  } catch (error) {
+    console.error("Error checking checkboxes:", error);
+  }
+}
+
 // Main function 
 async function autoFillForm() {
   try {
@@ -266,7 +504,7 @@ async function autoFillForm() {
     }
     
     const comentariosText = comentariosField.value;
-    console.log(`Comentarios text: "\${comentariosText}"`);
+    console.log("Comentarios text: \"" + comentariosText + "\"");
     
     // Parse the comentarios text
     const parsedData = parseComentarios(comentariosText);
@@ -293,10 +531,10 @@ async function autoFillForm() {
     
     // Method 1: Find by text content in span
     const allOptions = document.querySelectorAll('ml-select[name="asset_type_arrival"] .multiselect-item-text span');
-    console.log(`Found \${allOptions.length} options to check`);
+    console.log("Found " + allOptions.length + " options to check");
     
     for (const option of allOptions) {
-      console.log(`Option text: "\${option.textContent.trim()}"`);
+      console.log("Option text: \"" + option.textContent.trim() + "\"");
       if (option.textContent.trim() === 'Tráiler' || option.textContent.trim() === 'Trailer') {
         trailerOption = option;
         console.log("Found exact match for Tráiler/Trailer");
@@ -310,7 +548,7 @@ async function autoFillForm() {
       for (const option of allOptions) {
         if (option.textContent.trim().toLowerCase().includes('trail')) {
           trailerOption = option;
-          console.log(`Found partial match: "\${option.textContent.trim()}"`);
+          console.log("Found partial match: \"" + option.textContent.trim() + "\"");
           break;
         }
       }
@@ -323,7 +561,7 @@ async function autoFillForm() {
       for (const item of listItems) {
         if (item.textContent.trim().toLowerCase().includes('trail')) {
           trailerOption = item;
-          console.log(`Found list item: "\${item.textContent.trim()}"`);
+          console.log("Found list item: \"" + item.textContent.trim() + "\"");
           break;
         }
       }
@@ -343,7 +581,7 @@ async function autoFillForm() {
     const s1Match = comentariosText.match(/<[sS]1>(.*?)<\/[sS]1>/);
     if (s1Match && s1Match[1]) {
       sellar1Value = s1Match[1];
-      console.log(`Found Sellar 1 value: "\${sellar1Value}"`);
+      console.log("Found Sellar 1 value: \"" + sellar1Value + "\"");
       
       const sellar1Field = await waitForElement('input[name="seal1_arrival_gate"]');
       sellar1Field.value = sellar1Value;
@@ -359,7 +597,7 @@ async function autoFillForm() {
     const iMatch = comentariosText.match(/<[iI]>(.*?)<\/[iI]>/);
     if (iMatch && iMatch[1]) {
       cabinaValue = iMatch[1];
-      console.log(`Found Cabina value: "\${cabinaValue}"`);
+      console.log("Found Cabina value: \"" + cabinaValue + "\"");
       
       const cabinaField = await waitForElement('input[name="cab_num_arrival"]');
       cabinaField.value = cabinaValue;
@@ -369,6 +607,9 @@ async function autoFillForm() {
       cabinaField.dispatchEvent(new Event('change', { bubbles: true }));
       cabinaField.dispatchEvent(new Event('blur', { bubbles: true }));
     }
+
+    // Check all checkboxes
+    await checkAllCheckboxes();
 
     console.log("Form auto-fill completed successfully");
 
@@ -387,6 +628,16 @@ function addCSS() {
     }
     #data-tooltip tr:hover {
       background-color: rgba(255, 255, 255, 0.1);
+    }
+    #data-tooltip input:focus {
+      background-color: rgba(255, 255, 255, 0.2);
+      outline: none;
+    }
+    #data-tooltip input:hover {
+      background-color: rgba(255, 255, 255, 0.15);
+    }
+    #data-tooltip tr[data-tag="S1"], #data-tooltip tr[data-tag="I"] {
+      background-color: rgba(60, 120, 180, 0.15);
     }
   `;
   document.head.appendChild(style);
