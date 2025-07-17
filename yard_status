@@ -1,5 +1,5 @@
-//yard status v2
-//
+//yard status v3
+//https://yard-visibility-na12.voc.project44.com/asset/trailer_listing
 
 (function() {
   // Variables to store authorization and cookie information
@@ -415,6 +415,63 @@
     return null;
   }
 
+  // Extract security incident comment from the comment field
+  function extractSecurityIncident(item) {
+    if (!item) return null;
+    
+    // Check for comment in trailer object first
+    if (item.trailer && item.trailer.comment) {
+      const trailerMatch = item.trailer.comment.match(/<x>(.*?)<\/x>/);
+      if (trailerMatch) return trailerMatch[1];
+    }
+    
+    // Then check for comment in the main object
+    if (item.comment) {
+      const match = item.comment.match(/<x>(.*?)<\/x>/);
+      if (match) return match[1];
+    }
+    
+    return null;
+  }
+
+  // Extract badge (gafete) from the comment field
+  function extractBadge(item) {
+    if (!item) return null;
+    
+    // Check for comment in trailer object first
+    if (item.trailer && item.trailer.comment) {
+      const trailerMatch = item.trailer.comment.match(/<ga>(.*?)<\/ga>/);
+      if (trailerMatch) return trailerMatch[1];
+    }
+    
+    // Then check for comment in the main object
+    if (item.comment) {
+      const match = item.comment.match(/<ga>(.*?)<\/ga>/);
+      if (match) return match[1];
+    }
+    
+    return null;
+  }
+
+  // Extract identification from the comment field
+  function extractIdentification(item) {
+    if (!item) return null;
+    
+    // Check for comment in trailer object first
+    if (item.trailer && item.trailer.comment) {
+      const trailerMatch = item.trailer.comment.match(/<id>(.*?)<\/id>/);
+      if (trailerMatch) return trailerMatch[1];
+    }
+    
+    // Then check for comment in the main object
+    if (item.comment) {
+      const match = item.comment.match(/<id>(.*?)<\/id>/);
+      if (match) return match[1];
+    }
+    
+    return null;
+  }
+
   // Send notification for a trailer
   function sendNotification(item) {
     return new Promise((resolve, reject) => {
@@ -555,6 +612,417 @@
     });
   }
 
+  // Add or update security incident for a trailer
+  function updateSecurityIncident(item, incidentText) {
+    return new Promise((resolve, reject) => {
+      if (!authorization || !cookieValue) {
+        reject(new Error("Authorization or Cookie not captured yet."));
+        return;
+      }
+      
+      if (!item || !item.uuid) {
+        reject(new Error("Invalid item data"));
+        return;
+      }
+      
+      debugLog('Fetching asset details for UUID ' + item.uuid + ' to update security incident');
+      
+      // Create request headers
+      const headers = new Headers();
+      headers.append('Authorization', authorization);
+      headers.append('Cookie', cookieValue);
+      headers.append('Content-Type', 'application/json');
+      
+      // First, get the current asset data
+      fetch('https://yard-visibility-na12.api.project44.com/v1/asset/' + item.uuid, {
+        method: 'GET',
+        headers: headers,
+        credentials: 'include'
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('API responded with status ' + response.status);
+        }
+        return response.json();
+      })
+      .then(data => {
+        debugLog('Asset details received for UUID ' + item.uuid, data);
+        
+        // Create a new payload with the structure needed for the PUT request
+        let updatePayload = { ...data }; // Create a copy of the base data
+        
+        // Add the security incident to the comment
+        let comment = '';
+        
+        // If comment exists in trailer, use that, otherwise use the main comment if it exists
+        if (data.trailer && data.trailer.comment) {
+          comment = data.trailer.comment;
+        } else if (data.comment) {
+          comment = data.comment;
+        }
+        
+        // Add or update the security incident in the comment
+        if (comment.includes('<x>')) {
+          // Replace existing security incident
+          comment = comment.replace(/<x>.*?<\/x>/, '<x>' + incidentText + '</x>');
+        } else {
+          // Add new security incident
+          comment = comment + '<x>' + incidentText + '</x>';
+        }
+        
+        // Set trailer to empty string as in the example
+        updatePayload.trailer = '';
+        
+        // Move trailer properties to the main object
+        if (data.trailer && typeof data.trailer === 'object') {
+          // Add all trailer properties to the main object
+          Object.keys(data.trailer).forEach(key => {
+            updatePayload[key] = data.trailer[key];
+          });
+        }
+        
+        // Set the comment with the security incident
+        updatePayload.comment = comment;
+        
+        // Add other required properties shown in the example
+        updatePayload.assignedSiteFlag = false;
+        updatePayload.maintenance = {};
+        updatePayload.rental = {};
+        updatePayload.seal1_intact = false;
+        updatePayload.seal2_intact = false;
+        updatePayload.seal2 = '';
+        updatePayload.rfid = '';
+        
+        debugLog('Sending security incident update for UUID ' + item.uuid);
+        
+        // Send the update with the transformed structure
+        return fetch('https://yard-visibility-na12.api.project44.com/v1/asset/' + item.uuid, {
+          method: 'PUT',
+          headers: headers,
+          credentials: 'include',
+          body: JSON.stringify(updatePayload)
+        });
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('Update API responded with status ' + response.status);
+        }
+        return response.json();
+      })
+      .then(result => {
+        debugLog('Security incident updated for UUID ' + item.uuid, result);
+        
+        // Update the item in our local data
+        const itemIndex = yardData.findIndex(i => i.uuid === item.uuid);
+        if (itemIndex !== -1) {
+          // Update the comment in our local data structure
+          if (yardData[itemIndex].trailer && yardData[itemIndex].trailer.comment) {
+            if (yardData[itemIndex].trailer.comment.includes('<x>')) {
+              yardData[itemIndex].trailer.comment = yardData[itemIndex].trailer.comment.replace(
+                /<x>.*?<\/x>/, 
+                '<x>' + incidentText + '</x>'
+              );
+            } else {
+              yardData[itemIndex].trailer.comment = yardData[itemIndex].trailer.comment + '<x>' + incidentText + '</x>';
+            }
+          } 
+          else if (yardData[itemIndex].comment) {
+            if (yardData[itemIndex].comment.includes('<x>')) {
+              yardData[itemIndex].comment = yardData[itemIndex].comment.replace(
+                /<x>.*?<\/x>/, 
+                '<x>' + incidentText + '</x>'
+              );
+            } else {
+              yardData[itemIndex].comment = yardData[itemIndex].comment + '<x>' + incidentText + '</x>';
+            }
+          }
+        }
+        
+        // Update the table
+        updateTable();
+        resolve(result);
+      })
+      .catch(error => {
+        debugLog('Error updating security incident for UUID ' + item.uuid + ':', error.message);
+        reject(error);
+      });
+    });
+  }
+
+  // Add or update badge (gafete) for a trailer
+  function updateBadge(item, badgeText) {
+    return new Promise((resolve, reject) => {
+      if (!authorization || !cookieValue) {
+        reject(new Error("Authorization or Cookie not captured yet."));
+        return;
+      }
+      
+      if (!item || !item.uuid) {
+        reject(new Error("Invalid item data"));
+        return;
+      }
+      
+      debugLog('Fetching asset details for UUID ' + item.uuid + ' to update badge');
+      
+      // Create request headers
+      const headers = new Headers();
+      headers.append('Authorization', authorization);
+      headers.append('Cookie', cookieValue);
+      headers.append('Content-Type', 'application/json');
+      
+      // First, get the current asset data
+      fetch('https://yard-visibility-na12.api.project44.com/v1/asset/' + item.uuid, {
+        method: 'GET',
+        headers: headers,
+        credentials: 'include'
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('API responded with status ' + response.status);
+        }
+        return response.json();
+      })
+      .then(data => {
+        debugLog('Asset details received for UUID ' + item.uuid, data);
+        
+        // Create a new payload with the structure needed for the PUT request
+        let updatePayload = { ...data }; // Create a copy of the base data
+        
+        // Add the badge information to the comment
+        let comment = '';
+        
+        // If comment exists in trailer, use that, otherwise use the main comment if it exists
+        if (data.trailer && data.trailer.comment) {
+          comment = data.trailer.comment;
+        } else if (data.comment) {
+          comment = data.comment;
+        }
+        
+        // Add or update the badge in the comment
+        if (comment.includes('<ga>')) {
+          // Replace existing badge
+          comment = comment.replace(/<ga>.*?<\/ga>/, '<ga>' + badgeText + '</ga>');
+        } else {
+          // Add new badge
+          comment = comment + '<ga>' + badgeText + '</ga>';
+        }
+        
+        // Set trailer to empty string as in the example
+        updatePayload.trailer = '';
+        
+        // Move trailer properties to the main object
+        if (data.trailer && typeof data.trailer === 'object') {
+          // Add all trailer properties to the main object
+          Object.keys(data.trailer).forEach(key => {
+            updatePayload[key] = data.trailer[key];
+          });
+        }
+        
+        // Set the comment with the badge
+        updatePayload.comment = comment;
+        
+        // Add other required properties shown in the example
+        updatePayload.assignedSiteFlag = false;
+        updatePayload.maintenance = {};
+        updatePayload.rental = {};
+        updatePayload.seal1_intact = false;
+        updatePayload.seal2_intact = false;
+        updatePayload.seal2 = '';
+        updatePayload.rfid = '';
+        
+        debugLog('Sending badge update for UUID ' + item.uuid);
+        
+        // Send the update with the transformed structure
+        return fetch('https://yard-visibility-na12.api.project44.com/v1/asset/' + item.uuid, {
+          method: 'PUT',
+          headers: headers,
+          credentials: 'include',
+          body: JSON.stringify(updatePayload)
+        });
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('Update API responded with status ' + response.status);
+        }
+        return response.json();
+      })
+      .then(result => {
+        debugLog('Badge updated for UUID ' + item.uuid, result);
+        
+        // Update the item in our local data
+        const itemIndex = yardData.findIndex(i => i.uuid === item.uuid);
+        if (itemIndex !== -1) {
+          // Update the comment in our local data structure
+          if (yardData[itemIndex].trailer && yardData[itemIndex].trailer.comment) {
+            if (yardData[itemIndex].trailer.comment.includes('<ga>')) {
+              yardData[itemIndex].trailer.comment = yardData[itemIndex].trailer.comment.replace(
+                /<ga>.*?<\/ga>/, 
+                '<ga>' + badgeText + '</ga>'
+              );
+            } else {
+              yardData[itemIndex].trailer.comment = yardData[itemIndex].trailer.comment + '<ga>' + badgeText + '</ga>';
+            }
+          } 
+          else if (yardData[itemIndex].comment) {
+            if (yardData[itemIndex].comment.includes('<ga>')) {
+              yardData[itemIndex].comment = yardData[itemIndex].comment.replace(
+                /<ga>.*?<\/ga>/, 
+                '<ga>' + badgeText + '</ga>'
+              );
+            } else {
+              yardData[itemIndex].comment = yardData[itemIndex].comment + '<ga>' + badgeText + '</ga>';
+            }
+          }
+        }
+        
+        // Update the table
+        updateTable();
+        resolve(result);
+      })
+      .catch(error => {
+        debugLog('Error updating badge for UUID ' + item.uuid + ':', error.message);
+        reject(error);
+      });
+    });
+  }
+
+  // Add or update identification for a trailer
+  function updateIdentification(item, identificationText) {
+    return new Promise((resolve, reject) => {
+      if (!authorization || !cookieValue) {
+        reject(new Error("Authorization or Cookie not captured yet."));
+        return;
+      }
+      
+      if (!item || !item.uuid) {
+        reject(new Error("Invalid item data"));
+        return;
+      }
+      
+      debugLog('Fetching asset details for UUID ' + item.uuid + ' to update identification');
+      
+      // Create request headers
+      const headers = new Headers();
+      headers.append('Authorization', authorization);
+      headers.append('Cookie', cookieValue);
+      headers.append('Content-Type', 'application/json');
+      
+      // First, get the current asset data
+      fetch('https://yard-visibility-na12.api.project44.com/v1/asset/' + item.uuid, {
+        method: 'GET',
+        headers: headers,
+        credentials: 'include'
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('API responded with status ' + response.status);
+        }
+        return response.json();
+      })
+      .then(data => {
+        debugLog('Asset details received for UUID ' + item.uuid, data);
+        
+        // Create a new payload with the structure needed for the PUT request
+        let updatePayload = { ...data }; // Create a copy of the base data
+        
+        // Add the identification information to the comment
+        let comment = '';
+        
+        // If comment exists in trailer, use that, otherwise use the main comment if it exists
+        if (data.trailer && data.trailer.comment) {
+          comment = data.trailer.comment;
+        } else if (data.comment) {
+          comment = data.comment;
+        }
+        
+        // Add or update the identification in the comment
+        if (comment.includes('<id>')) {
+          // Replace existing identification
+          comment = comment.replace(/<id>.*?<\/id>/, '<id>' + identificationText + '</id>');
+        } else {
+          // Add new identification
+          comment = comment + '<id>' + identificationText + '</id>';
+        }
+        
+        // Set trailer to empty string as in the example
+        updatePayload.trailer = '';
+        
+        // Move trailer properties to the main object
+        if (data.trailer && typeof data.trailer === 'object') {
+          // Add all trailer properties to the main object
+          Object.keys(data.trailer).forEach(key => {
+            updatePayload[key] = data.trailer[key];
+          });
+        }
+        
+        // Set the comment with the identification
+        updatePayload.comment = comment;
+        
+        // Add other required properties shown in the example
+        updatePayload.assignedSiteFlag = false;
+        updatePayload.maintenance = {};
+        updatePayload.rental = {};
+        updatePayload.seal1_intact = false;
+        updatePayload.seal2_intact = false;
+        updatePayload.seal2 = '';
+        updatePayload.rfid = '';
+        
+        debugLog('Sending identification update for UUID ' + item.uuid);
+        
+        // Send the update with the transformed structure
+        return fetch('https://yard-visibility-na12.api.project44.com/v1/asset/' + item.uuid, {
+          method: 'PUT',
+          headers: headers,
+          credentials: 'include',
+          body: JSON.stringify(updatePayload)
+        });
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('Update API responded with status ' + response.status);
+        }
+        return response.json();
+      })
+      .then(result => {
+        debugLog('Identification updated for UUID ' + item.uuid, result);
+        
+        // Update the item in our local data
+        const itemIndex = yardData.findIndex(i => i.uuid === item.uuid);
+        if (itemIndex !== -1) {
+          // Update the comment in our local data structure
+          if (yardData[itemIndex].trailer && yardData[itemIndex].trailer.comment) {
+            if (yardData[itemIndex].trailer.comment.includes('<id>')) {
+              yardData[itemIndex].trailer.comment = yardData[itemIndex].trailer.comment.replace(
+                /<id>.*?<\/id>/, 
+                '<id>' + identificationText + '</id>'
+              );
+            } else {
+              yardData[itemIndex].trailer.comment = yardData[itemIndex].trailer.comment + '<id>' + identificationText + '</id>';
+            }
+          } 
+          else if (yardData[itemIndex].comment) {
+            if (yardData[itemIndex].comment.includes('<id>')) {
+              yardData[itemIndex].comment = yardData[itemIndex].comment.replace(
+                /<id>.*?<\/id>/, 
+                '<id>' + identificationText + '</id>'
+              );
+            } else {
+              yardData[itemIndex].comment = yardData[itemIndex].comment + '<id>' + identificationText + '</id>';
+            }
+          }
+        }
+        
+        // Update the table
+        updateTable();
+        resolve(result);
+      })
+      .catch(error => {
+        debugLog('Error updating identification for UUID ' + item.uuid + ':', error.message);
+        reject(error);
+      });
+    });
+  }
+
   // Export table data to Excel
   function exportToExcel() {
     debugLog("Exporting data to Excel");
@@ -577,8 +1045,8 @@
         'Tipo', 'Ubicación actual', 'Linea', 'Nombre operador', 
         'Teléfono operador', 'Económico tracto', 'Económico trailer', 
         'Hora reportado', 'Tiempo de estancia', 'Fecha de la cita',
-        'Diferencia vs. cita', 'Sección cita', 'Aviso enviado',
-        'Hora de ingreso', 'Hora de llegada a rampa',
+        'Diferencia vs. cita', 'Sección cita', 'Aviso enviado', 'Incidente seguridad',
+        'Gafete', 'Identificación', 'Hora de ingreso', 'Hora de llegada a rampa',
         'Hora de fin de carga/descarga', 'Hora de salida de rampa'
       ];
       excelData.push(headers);
@@ -590,32 +1058,39 @@
       displayData.forEach(item => {
         const reference1 = item.trailer && item.trailer.shipment_details ? item.trailer.shipment_details.reference_1 || '' : '';
         const reference2 = item.trailer && item.trailer.shipment_details ? item.trailer.shipment_details.reference_2 || '' : '';
-        const status = item.status === 'empty' ? 'Vacío' : item.status === 'loaded' ? 'Cargado' : item.status || '';
-        const commodity = item.commodity || '';
+        const status = item.status === 'empty' ? 'VACÍO' : item.status === 'loaded' ? 'CARGADO' : (item.status || '').toUpperCase();
+        const commodity = (item.commodity || '').toUpperCase();
         const sku = item.trailer && item.trailer.shipment_details && item.trailer.shipment_details.sku ? 
-                    item.trailer.shipment_details.sku.join(', ') : '';
-        const serviceType = item.trailer ? item.trailer.service_type || '' : '';
-        const location = item.current_location || '';
-        const carrier = item.cab ? item.cab.carrier || '' : '';
-        const driverName = item.cab ? 
-                          (item.cab.first_name || '') + ' ' + (item.cab.last_name || '').trim() : '';
-        const driverPhone = item.cab ? item.cab.driver_cell_no || '' : '';
-        const cabNo = item.cab ? item.cab.cab_no || '' : '';
-        const trailerName = item.name || '';
-        const arrivalTime = formatTimestamp(item.arrival_time);
-        const timeDifference = calculateDwellTime(item.arrival_time).split(' ')[0]; // Remove emoji for Excel
+                    item.trailer.shipment_details.sku.join(', ').toUpperCase() : '';
+        const serviceType = (item.trailer ? item.trailer.service_type || '' : '').toUpperCase();
+        const location = (item.current_location || '').toUpperCase();
+        const carrier = (item.cab ? item.cab.carrier || '' : '').toUpperCase();
+        const driverName = (item.cab ? 
+                          (item.cab.first_name || '') + ' ' + (item.cab.last_name || '').trim() : '').toUpperCase();
+        const driverPhone = (item.cab ? item.cab.driver_cell_no || '' : '').toUpperCase();
+        const cabNo = (item.cab ? item.cab.cab_no || '' : '').toUpperCase();
+        const trailerName = (item.name || '').toUpperCase();
+        const arrivalTime = formatTimestamp(item.arrival_time).toUpperCase();
+        const timeDifference = calculateDwellTime(item.arrival_time).split(' ')[0].toUpperCase(); // Remove emoji for Excel
         
         // Get appointment data
         const shipmentNo = item.trailer?.shipment_no || '';
         const appointmentInfo = appointmentCache[shipmentNo] || { appointmentTime: null, sectionName: '' };
-        const appointmentTime = appointmentInfo.appointmentTime ? formatTimestamp(appointmentInfo.appointmentTime) : '';
+        const appointmentTime = appointmentInfo.appointmentTime ? formatTimestamp(appointmentInfo.appointmentTime).toUpperCase() : '';
         const appointmentDiff = (item.arrival_time && appointmentInfo.appointmentTime) ? 
-                               calculateTimeDifference(item.arrival_time, appointmentInfo.appointmentTime) : '';
-        const sectionName = appointmentInfo.sectionName || '';
+                               calculateTimeDifference(item.arrival_time, appointmentInfo.appointmentTime).toUpperCase() : '';
+        const sectionName = (appointmentInfo.sectionName || '').toUpperCase();
         
         // Get notification time
         const notificationTime = extractNotificationTime(item);
-        const notificationStatus = notificationTime ? formatTimestamp(notificationTime) : 'No enviado';
+        const notificationStatus = notificationTime ? formatTimestamp(notificationTime).toUpperCase() : 'NO ENVIADO';
+        
+        // Get security incident
+        const securityIncident = extractSecurityIncident(item)?.toUpperCase() || '';
+        
+        // Get badge and identification
+        const badge = extractBadge(item)?.toUpperCase() || '';
+        const identification = extractIdentification(item)?.toUpperCase() || '';
         
         // Get task times
         const ingressTime = getTaskTimeForAsset(item.uuid, 'spot', 'created_time');
@@ -624,13 +1099,31 @@
         const exitRampTime = getTaskTimeForAsset(item.uuid, 'pull', 'completed_time');
         
         excelData.push([
-          reference1, reference2, status, commodity, sku, serviceType, location,
-          carrier, driverName, driverPhone, cabNo, trailerName, arrivalTime, timeDifference,
-          appointmentTime, appointmentDiff, sectionName, notificationStatus,
-          ingressTime ? formatTimestamp(ingressTime) : '',
-          arrivalToRampTime ? formatTimestamp(arrivalToRampTime) : '',
-          endLoadingTime ? formatTimestamp(endLoadingTime) : '',
-          exitRampTime ? formatTimestamp(exitRampTime) : ''
+          reference1.toUpperCase(), 
+          reference2.toUpperCase(), 
+          status, 
+          commodity, 
+          sku, 
+          serviceType, 
+          location,
+          carrier, 
+          driverName, 
+          driverPhone, 
+          cabNo, 
+          trailerName, 
+          arrivalTime, 
+          timeDifference,
+          appointmentTime, 
+          appointmentDiff, 
+          sectionName, 
+          notificationStatus, 
+          securityIncident,
+          badge, 
+          identification,
+          ingressTime ? formatTimestamp(ingressTime).toUpperCase() : '',
+          arrivalToRampTime ? formatTimestamp(arrivalToRampTime).toUpperCase() : '',
+          endLoadingTime ? formatTimestamp(endLoadingTime).toUpperCase() : '',
+          exitRampTime ? formatTimestamp(exitRampTime).toUpperCase() : ''
         ]);
       });
       
@@ -671,8 +1164,8 @@
         'Tipo', 'Ubicación actual', 'Linea', 'Nombre operador', 
         'Teléfono operador', 'Económico tracto', 'Económico trailer', 
         'Hora reportado', 'Tiempo de estancia', 'Fecha de la cita',
-        'Diferencia vs. cita', 'Sección cita', 'Aviso enviado',
-        'Hora de ingreso', 'Hora de llegada a rampa',
+        'Diferencia vs. cita', 'Sección cita', 'Aviso enviado', 'Incidente seguridad',
+        'Gafete', 'Identificación', 'Hora de ingreso', 'Hora de llegada a rampa',
         'Hora de fin de carga/descarga', 'Hora de salida de rampa'
       ];
       csvContent += headers.join(",") + "\r\n";
@@ -684,32 +1177,39 @@
       displayData.forEach(item => {
         const reference1 = item.trailer && item.trailer.shipment_details ? item.trailer.shipment_details.reference_1 || '' : '';
         const reference2 = item.trailer && item.trailer.shipment_details ? item.trailer.shipment_details.reference_2 || '' : '';
-        const status = item.status === 'empty' ? 'Vacío' : item.status === 'loaded' ? 'Cargado' : item.status || '';
-        const commodity = item.commodity || '';
+        const status = item.status === 'empty' ? 'VACÍO' : item.status === 'loaded' ? 'CARGADO' : (item.status || '').toUpperCase();
+        const commodity = (item.commodity || '').toUpperCase();
         const sku = item.trailer && item.trailer.shipment_details && item.trailer.shipment_details.sku ? 
-                    item.trailer.shipment_details.sku.join(', ').replace(/,/g, ' -') : '';
-        const serviceType = item.trailer ? item.trailer.service_type || '' : '';
-        const location = item.current_location || '';
-        const carrier = item.cab ? item.cab.carrier || '' : '';
-        const driverName = item.cab ? 
-                          ((item.cab.first_name || '') + ' ' + (item.cab.last_name || '')).trim() : '';
-        const driverPhone = item.cab ? item.cab.driver_cell_no || '' : '';
-        const cabNo = item.cab ? item.cab.cab_no || '' : '';
-        const trailerName = item.name || '';
-        const arrivalTime = formatTimestamp(item.arrival_time);
-        const timeDifference = calculateDwellTime(item.arrival_time).split(' ')[0]; // Remove emoji
+                    item.trailer.shipment_details.sku.join(', ').replace(/,/g, ' -').toUpperCase() : '';
+        const serviceType = (item.trailer ? item.trailer.service_type || '' : '').toUpperCase();
+        const location = (item.current_location || '').toUpperCase();
+        const carrier = (item.cab ? item.cab.carrier || '' : '').toUpperCase();
+        const driverName = (item.cab ? 
+                          ((item.cab.first_name || '') + ' ' + (item.cab.last_name || '')).trim() : '').toUpperCase();
+        const driverPhone = (item.cab ? item.cab.driver_cell_no || '' : '').toUpperCase();
+        const cabNo = (item.cab ? item.cab.cab_no || '' : '').toUpperCase();
+        const trailerName = (item.name || '').toUpperCase();
+        const arrivalTime = formatTimestamp(item.arrival_time).toUpperCase();
+        const timeDifference = calculateDwellTime(item.arrival_time).split(' ')[0].toUpperCase(); // Remove emoji
         
         // Get appointment data
         const shipmentNo = item.trailer?.shipment_no || '';
         const appointmentInfo = appointmentCache[shipmentNo] || { appointmentTime: null, sectionName: '' };
-        const appointmentTime = appointmentInfo.appointmentTime ? formatTimestamp(appointmentInfo.appointmentTime) : '';
+        const appointmentTime = appointmentInfo.appointmentTime ? formatTimestamp(appointmentInfo.appointmentTime).toUpperCase() : '';
         const appointmentDiff = (item.arrival_time && appointmentInfo.appointmentTime) ? 
-                               calculateTimeDifference(item.arrival_time, appointmentInfo.appointmentTime) : '';
-        const sectionName = appointmentInfo.sectionName || '';
+                               calculateTimeDifference(item.arrival_time, appointmentInfo.appointmentTime).toUpperCase() : '';
+        const sectionName = (appointmentInfo.sectionName || '').toUpperCase();
         
         // Get notification time
         const notificationTime = extractNotificationTime(item);
-        const notificationStatus = notificationTime ? formatTimestamp(notificationTime) : 'No enviado';
+        const notificationStatus = notificationTime ? formatTimestamp(notificationTime).toUpperCase() : 'NO ENVIADO';
+        
+        // Get security incident
+        const securityIncident = extractSecurityIncident(item)?.toUpperCase() || '';
+        
+        // Get badge and identification
+        const badge = extractBadge(item)?.toUpperCase() || '';
+        const identification = extractIdentification(item)?.toUpperCase() || '';
         
         // Get task times
         const ingressTime = getTaskTimeForAsset(item.uuid, 'spot', 'created_time');
@@ -718,13 +1218,31 @@
         const exitRampTime = getTaskTimeForAsset(item.uuid, 'pull', 'completed_time');
         
         const row = [
-          reference1, reference2, status, commodity, sku, serviceType, location,
-          carrier, driverName, driverPhone, cabNo, trailerName, arrivalTime, timeDifference,
-          appointmentTime, appointmentDiff, sectionName, notificationStatus,
-          ingressTime ? formatTimestamp(ingressTime) : '',
-          arrivalToRampTime ? formatTimestamp(arrivalToRampTime) : '',
-          endLoadingTime ? formatTimestamp(endLoadingTime) : '',
-          exitRampTime ? formatTimestamp(exitRampTime) : ''
+          reference1.toUpperCase(), 
+          reference2.toUpperCase(), 
+          status, 
+          commodity, 
+          sku, 
+          serviceType, 
+          location,
+          carrier, 
+          driverName, 
+          driverPhone, 
+          cabNo, 
+          trailerName, 
+          arrivalTime, 
+          timeDifference,
+          appointmentTime, 
+          appointmentDiff, 
+          sectionName, 
+          notificationStatus, 
+          securityIncident,
+          badge, 
+          identification,
+          ingressTime ? formatTimestamp(ingressTime).toUpperCase() : '',
+          arrivalToRampTime ? formatTimestamp(arrivalToRampTime).toUpperCase() : '',
+          endLoadingTime ? formatTimestamp(endLoadingTime).toUpperCase() : '',
+          exitRampTime ? formatTimestamp(exitRampTime).toUpperCase() : ''
         ].map(val => '"' + String(val).replace(/"/g, '""') + '"').join(',');
         
         csvContent += row + "\r\n";
@@ -960,19 +1478,31 @@
           aValue = extractNotificationTime(a) || 0;
           bValue = extractNotificationTime(b) || 0;
           break;
-        case 18: // Hora de ingreso
+        case 18: // Incidente seguridad
+          aValue = extractSecurityIncident(a) || '';
+          bValue = extractSecurityIncident(b) || '';
+          break;
+        case 19: // Gafete
+          aValue = extractBadge(a) || '';
+          bValue = extractBadge(b) || '';
+          break;
+        case 20: // Identificación
+          aValue = extractIdentification(a) || '';
+          bValue = extractIdentification(b) || '';
+          break;
+        case 21: // Hora de ingreso
           aValue = getTaskTimeForAsset(a.uuid, 'spot', 'created_time') || 0;
           bValue = getTaskTimeForAsset(b.uuid, 'spot', 'created_time') || 0;
           break;
-        case 19: // Hora de llegada a rampa
+        case 22: // Hora de llegada a rampa
           aValue = getTaskTimeForAsset(a.uuid, 'spot', 'completed_time') || 0;
           bValue = getTaskTimeForAsset(b.uuid, 'spot', 'completed_time') || 0;
           break;
-        case 20: // Hora de fin de carga/descarga
+        case 23: // Hora de fin de carga/descarga
           aValue = getTaskTimeForAsset(a.uuid, 'pull', 'created_time') || 0;
           bValue = getTaskTimeForAsset(b.uuid, 'pull', 'created_time') || 0;
           break;
-        case 21: // Hora de salida de rampa
+        case 24: // Hora de salida de rampa
           aValue = getTaskTimeForAsset(a.uuid, 'pull', 'completed_time') || 0;
           bValue = getTaskTimeForAsset(b.uuid, 'pull', 'completed_time') || 0;
           break;
@@ -1068,19 +1598,28 @@
             const notificationTime = extractNotificationTime(item);
             itemValue = notificationTime ? formatTimestamp(notificationTime) : 'No enviado';
             break;
-          case 18: // Hora de ingreso
+          case 18: // Incidente seguridad
+            itemValue = extractSecurityIncident(item) || '';
+            break;
+          case 19: // Gafete
+            itemValue = extractBadge(item) || '';
+            break;
+          case 20: // Identificación
+            itemValue = extractIdentification(item) || '';
+            break;
+          case 21: // Hora de ingreso
             const ingressTime = getTaskTimeForAsset(item.uuid, 'spot', 'created_time');
             itemValue = ingressTime ? formatTimestamp(ingressTime) : '';
             break;
-          case 19: // Hora de llegada a rampa
+          case 22: // Hora de llegada a rampa
             const arrivalTime = getTaskTimeForAsset(item.uuid, 'spot', 'completed_time');
             itemValue = arrivalTime ? formatTimestamp(arrivalTime) : '';
             break;
-          case 20: // Hora de fin de carga/descarga
+          case 23: // Hora de fin de carga/descarga
             const endLoadingTime = getTaskTimeForAsset(item.uuid, 'pull', 'created_time');
             itemValue = endLoadingTime ? formatTimestamp(endLoadingTime) : '';
             break;
-          case 21: // Hora de salida de rampa
+          case 24: // Hora de salida de rampa
             const exitTime = getTaskTimeForAsset(item.uuid, 'pull', 'completed_time');
             itemValue = exitTime ? formatTimestamp(exitTime) : '';
             break;
@@ -1121,7 +1660,7 @@
     
     if (yardData.length === 0) {
       const emptyRow = document.createElement('tr');
-      emptyRow.innerHTML = '<td colspan="22" style="text-align: center; padding: 20px;">No hay datos disponibles</td>';
+      emptyRow.innerHTML = '<td colspan="25" style="text-align: center; padding: 20px;">NO HAY DATOS DISPONIBLES</td>';
       tableBody.appendChild(emptyRow);
       return;
     }
@@ -1131,7 +1670,7 @@
     
     if (displayData.length === 0) {
       const emptyRow = document.createElement('tr');
-      emptyRow.innerHTML = '<td colspan="22" style="text-align: center; padding: 20px;">No hay resultados para los filtros actuales</td>';
+      emptyRow.innerHTML = '<td colspan="25" style="text-align: center; padding: 20px;">NO HAY RESULTADOS PARA LOS FILTROS ACTUALES</td>';
       tableBody.appendChild(emptyRow);
       return;
     }
@@ -1181,32 +1720,41 @@
         }
         
         // Get nested values with safe access
-        const reference1 = item.trailer && item.trailer.shipment_details ? item.trailer.shipment_details.reference_1 || '' : '';
-        const reference2 = item.trailer && item.trailer.shipment_details ? item.trailer.shipment_details.reference_2 || '' : '';
-        const statusText = item.status === 'empty' ? 'Vacío' : item.status === 'loaded' ? 'Cargado' : item.status || '';
-        const commodity = item.commodity || '';
-        const sku = item.trailer && item.trailer.shipment_details && item.trailer.shipment_details.sku ? 
-                    item.trailer.shipment_details.sku.join(', ') : '';
-        const serviceTypeText = item.trailer ? item.trailer.service_type || '' : '';
-        const location = item.current_location || '';
-        const carrier = item.cab ? item.cab.carrier || '' : '';
-        const driverName = item.cab ? 
-                          (item.cab.first_name || '') + ' ' + (item.cab.last_name || '').trim() : '';
-        const driverPhone = item.cab ? item.cab.driver_cell_no || '' : '';
-        const cabNo = item.cab ? item.cab.cab_no || '' : '';
-        const trailerName = item.name || '';
-        const arrivalTime = formatTimestamp(item.arrival_time);
-        const timeDifference = calculateDwellTime(item.arrival_time);
+        const reference1 = (item.trailer && item.trailer.shipment_details ? item.trailer.shipment_details.reference_1 || '' : '').toUpperCase();
+        const reference2 = (item.trailer && item.trailer.shipment_details ? item.trailer.shipment_details.reference_2 || '' : '').toUpperCase();
+        const statusText = (item.status === 'empty' ? 'Vacío' : item.status === 'loaded' ? 'Cargado' : item.status || '').toUpperCase();
+        const commodity = (item.commodity || '').toUpperCase();
+        const sku = (item.trailer && item.trailer.shipment_details && item.trailer.shipment_details.sku ? 
+                    item.trailer.shipment_details.sku.join(', ') : '').toUpperCase();
+        const serviceTypeText = (item.trailer ? item.trailer.service_type || '' : '').toUpperCase();
+        const location = (item.current_location || '').toUpperCase();
+        const carrier = (item.cab ? item.cab.carrier || '' : '').toUpperCase();
+        const driverName = (item.cab ? 
+                          (item.cab.first_name || '') + ' ' + (item.cab.last_name || '').trim() : '').toUpperCase();
+        const driverPhone = (item.cab ? item.cab.driver_cell_no || '' : '').toUpperCase();
+        const cabNo = (item.cab ? item.cab.cab_no || '' : '').toUpperCase();
+        const trailerName = (item.name || '').toUpperCase();
+        const arrivalTime = formatTimestamp(item.arrival_time).toUpperCase();
+        const timeDifference = calculateDwellTime(item.arrival_time).toUpperCase();
         
         // Appointment data
         const appointmentInfo = appointmentCache[item.trailer?.shipment_no || ''] || { appointmentTime: null, sectionName: '' };
-        const appointmentTime = appointmentInfo.appointmentTime ? formatTimestamp(appointmentInfo.appointmentTime) : '';
+        const appointmentTime = appointmentInfo.appointmentTime ? formatTimestamp(appointmentInfo.appointmentTime).toUpperCase() : '';
         const appointmentDiff = (item.arrival_time && appointmentInfo.appointmentTime) ? 
-                               calculateTimeDifference(item.arrival_time, appointmentInfo.appointmentTime) : '';
-        const sectionName = appointmentInfo.sectionName || '';
+                               calculateTimeDifference(item.arrival_time, appointmentInfo.appointmentTime).toUpperCase() : '';
+        const sectionName = (appointmentInfo.sectionName || '').toUpperCase();
         
         // Notification data
         const notificationTime = extractNotificationTime(item);
+        
+        // Security incident data
+        const securityIncident = extractSecurityIncident(item);
+        
+        // Badge data
+        const badge = extractBadge(item);
+        
+        // Identification data
+        const identification = extractIdentification(item);
         
         // Task data
         const ingressTime = getTaskTimeForAsset(item.uuid, 'spot', 'created_time');
@@ -1214,67 +1762,93 @@
         const endLoadingTime = getTaskTimeForAsset(item.uuid, 'pull', 'created_time');
         const exitRampTime = getTaskTimeForAsset(item.uuid, 'pull', 'completed_time');
         
+        // Common cell style with borders
+        const cellStyle = `
+          border-left: 1px solid #ddd;
+          border-right: 1px solid #ddd;
+          padding: 8px;
+          vertical-align: middle;
+        `;
+        
         // Create cells
         const tdReference1 = document.createElement('td');
         tdReference1.textContent = reference1;
+        tdReference1.style.cssText = cellStyle;
         
         const tdReference2 = document.createElement('td');
         tdReference2.textContent = reference2;
+        tdReference2.style.cssText = cellStyle;
         
         const tdStatus = document.createElement('td');
         tdStatus.textContent = statusText;
+        tdStatus.style.cssText = cellStyle;
         
         const tdCommodity = document.createElement('td');
         tdCommodity.textContent = commodity;
+        tdCommodity.style.cssText = cellStyle;
         
         const tdSku = document.createElement('td');
         tdSku.textContent = sku;
+        tdSku.style.cssText = cellStyle;
         
         const tdServiceType = document.createElement('td');
         tdServiceType.textContent = serviceTypeText;
+        tdServiceType.style.cssText = cellStyle;
         
         const tdLocation = document.createElement('td');
         tdLocation.textContent = location;
+        tdLocation.style.cssText = cellStyle;
         
         const tdCarrier = document.createElement('td');
         tdCarrier.textContent = carrier;
+        tdCarrier.style.cssText = cellStyle;
         
         const tdDriverName = document.createElement('td');
         tdDriverName.textContent = driverName;
+        tdDriverName.style.cssText = cellStyle;
         
         const tdDriverPhone = document.createElement('td');
         tdDriverPhone.textContent = driverPhone;
+        tdDriverPhone.style.cssText = cellStyle;
         
         const tdCabNo = document.createElement('td');
         tdCabNo.textContent = cabNo;
+        tdCabNo.style.cssText = cellStyle;
         
         const tdTrailerName = document.createElement('td');
         tdTrailerName.textContent = trailerName;
+        tdTrailerName.style.cssText = cellStyle;
         
         const tdArrivalTime = document.createElement('td');
         tdArrivalTime.textContent = arrivalTime;
+        tdArrivalTime.style.cssText = cellStyle;
         
         const tdTimeDifference = document.createElement('td');
         tdTimeDifference.className = 'time-diff';
         tdTimeDifference.innerHTML = timeDifference;
+        tdTimeDifference.style.cssText = cellStyle;
         
         // Appointment columns
         const tdAppointmentTime = document.createElement('td');
         tdAppointmentTime.textContent = appointmentTime;
+        tdAppointmentTime.style.cssText = cellStyle;
         
         const tdAppointmentDiff = document.createElement('td');
         tdAppointmentDiff.textContent = appointmentDiff;
+        tdAppointmentDiff.style.cssText = cellStyle;
         
         const tdSectionName = document.createElement('td');
         tdSectionName.textContent = sectionName;
+        tdSectionName.style.cssText = cellStyle;
         
         // Notification column
         const tdNotification = document.createElement('td');
+        tdNotification.style.cssText = cellStyle;
         if (notificationTime) {
-          tdNotification.textContent = formatTimestamp(notificationTime);
+          tdNotification.textContent = formatTimestamp(notificationTime).toUpperCase();
         } else {
           const notifyButton = document.createElement('button');
-          notifyButton.textContent = 'Aviso';
+          notifyButton.textContent = 'AVISO';
           notifyButton.className = 'notify-button';
           notifyButton.style.cssText = `
             padding: 4px 8px;
@@ -1286,7 +1860,7 @@
           `;
           notifyButton.onclick = function() {
             this.disabled = true;
-            this.textContent = 'Enviando...';
+            this.textContent = 'ENVIANDO...';
             
             sendNotification(item)
               .then(() => {
@@ -1294,25 +1868,188 @@
               })
               .catch(err => {
                 this.disabled = false;
-                this.textContent = 'Reintentar';
+                this.textContent = 'REINTENTAR';
                 alert('Error enviando aviso: ' + err.message);
               });
           };
           tdNotification.appendChild(notifyButton);
         }
         
+        // Security incident column
+        const tdSecurityIncident = document.createElement('td');
+        tdSecurityIncident.style.cssText = cellStyle;
+        if (securityIncident) {
+          tdSecurityIncident.textContent = securityIncident.toUpperCase();
+          
+          // Add edit button
+          const editButton = document.createElement('button');
+          editButton.textContent = '✏️';
+          editButton.style.cssText = `
+            margin-left: 5px;
+            padding: 2px 5px;
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 10px;
+          `;
+          editButton.onclick = function() {
+            const newIncident = prompt("Actualizar incidente de seguridad:", securityIncident);
+            if (newIncident !== null) {
+              updateSecurityIncident(item, newIncident)
+                .catch(err => {
+                  alert('Error actualizando incidente: ' + err.message);
+                });
+            }
+          };
+          tdSecurityIncident.appendChild(editButton);
+        } else {
+          const addButton = document.createElement('button');
+          addButton.textContent = 'AÑADIR';
+          addButton.className = 'security-button';
+          addButton.style.cssText = `
+            padding: 4px 8px;
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+          `;
+          addButton.onclick = function() {
+            const incidentText = prompt("Ingrese el comentario de incidente de seguridad:");
+            if (incidentText) {
+              updateSecurityIncident(item, incidentText)
+                .catch(err => {
+                  alert('Error añadiendo incidente: ' + err.message);
+                });
+            }
+          };
+          tdSecurityIncident.appendChild(addButton);
+        }
+
+        // Badge column (Gafete)
+        const tdBadge = document.createElement('td');
+        tdBadge.style.cssText = cellStyle;
+        if (badge) {
+          tdBadge.textContent = badge.toUpperCase();
+          
+          // Add edit button
+          const editButton = document.createElement('button');
+          editButton.textContent = '✏️';
+          editButton.style.cssText = `
+            margin-left: 5px;
+            padding: 2px 5px;
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 10px;
+          `;
+          editButton.onclick = function() {
+            const newBadge = prompt("Actualizar número de gafete:", badge);
+            if (newBadge !== null) {
+              updateBadge(item, newBadge)
+                .catch(err => {
+                  alert('Error actualizando gafete: ' + err.message);
+                });
+            }
+          };
+          tdBadge.appendChild(editButton);
+        } else {
+          const addButton = document.createElement('button');
+          addButton.textContent = 'AÑADIR';
+          addButton.className = 'badge-button';
+          addButton.style.cssText = `
+            padding: 4px 8px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+          `;
+          addButton.onclick = function() {
+            const badgeText = prompt("Ingrese el número de gafete:");
+            if (badgeText) {
+              updateBadge(item, badgeText)
+                .catch(err => {
+                  alert('Error añadiendo gafete: ' + err.message);
+                });
+            }
+          };
+          tdBadge.appendChild(addButton);
+        }
+        
+        // Identification column (Identificación)
+        const tdIdentification = document.createElement('td');
+        tdIdentification.style.cssText = cellStyle;
+        if (identification) {
+          tdIdentification.textContent = identification.toUpperCase();
+          
+          // Add edit button
+          const editButton = document.createElement('button');
+          editButton.textContent = '✏️';
+          editButton.style.cssText = `
+            margin-left: 5px;
+            padding: 2px 5px;
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 10px;
+          `;
+          editButton.onclick = function() {
+            const newIdentification = prompt("Actualizar identificación:", identification);
+            if (newIdentification !== null) {
+              updateIdentification(item, newIdentification)
+                .catch(err => {
+                  alert('Error actualizando identificación: ' + err.message);
+                });
+            }
+          };
+          tdIdentification.appendChild(editButton);
+        } else {
+          const addButton = document.createElement('button');
+          addButton.textContent = 'AÑADIR';
+          addButton.className = 'identification-button';
+          addButton.style.cssText = `
+            padding: 4px 8px;
+            background-color: #9C27B0;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+          `;
+          addButton.onclick = function() {
+            const identificationText = prompt("Ingrese la identificación:");
+            if (identificationText) {
+              updateIdentification(item, identificationText)
+                .catch(err => {
+                  alert('Error añadiendo identificación: ' + err.message);
+                });
+            }
+          };
+          tdIdentification.appendChild(addButton);
+        }
+        
         // Task data columns
         const tdIngressTime = document.createElement('td');
-        tdIngressTime.textContent = ingressTime ? formatTimestamp(ingressTime) : '';
+        tdIngressTime.textContent = ingressTime ? formatTimestamp(ingressTime).toUpperCase() : '';
+        tdIngressTime.style.cssText = cellStyle;
         
         const tdArrivalToRampTime = document.createElement('td');
-        tdArrivalToRampTime.textContent = arrivalToRampTime ? formatTimestamp(arrivalToRampTime) : '';
+        tdArrivalToRampTime.textContent = arrivalToRampTime ? formatTimestamp(arrivalToRampTime).toUpperCase() : '';
+        tdArrivalToRampTime.style.cssText = cellStyle;
         
         const tdEndLoadingTime = document.createElement('td');
-        tdEndLoadingTime.textContent = endLoadingTime ? formatTimestamp(endLoadingTime) : '';
+        tdEndLoadingTime.textContent = endLoadingTime ? formatTimestamp(endLoadingTime).toUpperCase() : '';
+        tdEndLoadingTime.style.cssText = cellStyle;
         
         const tdExitRampTime = document.createElement('td');
-        tdExitRampTime.textContent = exitRampTime ? formatTimestamp(exitRampTime) : '';
+        tdExitRampTime.textContent = exitRampTime ? formatTimestamp(exitRampTime).toUpperCase() : '';
+        tdExitRampTime.style.cssText = cellStyle;
         
         // Append all cells to the row
         row.appendChild(tdReference1);
@@ -1333,6 +2070,9 @@
         row.appendChild(tdAppointmentDiff);
         row.appendChild(tdSectionName);
         row.appendChild(tdNotification);
+        row.appendChild(tdSecurityIncident);
+        row.appendChild(tdBadge);
+        row.appendChild(tdIdentification);
         row.appendChild(tdIngressTime);
         row.appendChild(tdArrivalToRampTime);
         row.appendChild(tdEndLoadingTime);
@@ -1350,9 +2090,9 @@
       const statusSpan = statusMsg.querySelector('span');
       if (statusSpan) {
         if (displayData.length < yardData.length) {
-          statusSpan.textContent = 'Mostrando ' + displayData.length + ' de ' + yardData.length + ' registros (filtrados)';
+          statusSpan.textContent = 'MOSTRANDO ' + displayData.length + ' DE ' + yardData.length + ' REGISTROS (FILTRADOS)';
         } else {
-          statusSpan.textContent = 'Mostrando ' + yardData.length + ' registros';
+          statusSpan.textContent = 'MOSTRANDO ' + yardData.length + ' REGISTROS';
         }
       }
     }
@@ -1416,7 +2156,7 @@
     
     displayData.forEach((item, index) => {
       if (index < timeDiffCells.length && item.arrival_time) {
-        timeDiffCells[index].innerHTML = calculateDwellTime(item.arrival_time);
+        timeDiffCells[index].innerHTML = calculateDwellTime(item.arrival_time).toUpperCase();
       }
     });
   }
@@ -1429,11 +2169,14 @@
       cursor: pointer;
       padding-right: 20px;
       background-color: #4185f4;
+      border-left: 1px solid #2a70f0;
+      border-right: 1px solid #2a70f0;
+      color: white;
     `;
     
     // Header text content
     const headerText = document.createElement('span');
-    headerText.textContent = text;
+    headerText.textContent = text.toUpperCase();
     th.appendChild(headerText);
     
     // Sort indicator
@@ -1455,7 +2198,7 @@
     // Filter input
     const filterInput = document.createElement('input');
     filterInput.type = 'text';
-    filterInput.placeholder = 'Filtrar...';
+    filterInput.placeholder = 'FILTRAR...';
     filterInput.style.cssText = `
       display: block;
       width: calc(100% - 10px);
@@ -1464,6 +2207,7 @@
       box-sizing: border-box;
       font-size: 12px;
       color: #333;
+      text-transform: uppercase;
     `;
     
     // Set initial filter value
@@ -1542,14 +2286,14 @@
     `;
     
     const title = document.createElement('h1');
-    title.textContent = 'Estado de Patio';
+    title.textContent = 'ESTADO DE PATIO';
     title.style.margin = '0';
     
     const controlsDiv = document.createElement('div');
     
     // Add refresh button
     const refreshBtn = document.createElement('button');
-    refreshBtn.textContent = 'Refrescar';
+    refreshBtn.textContent = 'REFRESCAR';
     refreshBtn.style.cssText = `
       margin-right: 10px;
       padding: 5px 15px;
@@ -1566,7 +2310,7 @@
     
     // Add export button
     const exportBtn = document.createElement('button');
-    exportBtn.textContent = 'Exportar a Excel';
+    exportBtn.textContent = 'EXPORTAR A EXCEL';
     exportBtn.style.cssText = `
       margin-right: 10px;
       padding: 5px 15px;
@@ -1613,6 +2357,8 @@
       width: 100%;
       border-collapse: collapse;
       font-size: 14px;
+      border: 2px solid #2a70f0;
+      text-transform: uppercase;
     `;
     
     const thead = document.createElement('thead');
@@ -1621,6 +2367,7 @@
       color: white;
       position: sticky;
       top: 0;
+      text-transform: uppercase;
     `;
     
     // Create header row with sortable and filterable headers
@@ -1631,8 +2378,8 @@
       'Tipo', 'Ubicación actual', 'Linea', 'Nombre operador', 
       'Teléfono operador', 'Económico tracto', 'Económico trailer', 
       'Hora reportado', 'Tiempo de estancia', 'Fecha de la cita',
-      'Diferencia vs. cita', 'Sección cita', 'Aviso enviado',
-      'Hora de ingreso', 'Hora de llegada a rampa',
+      'Diferencia vs. cita', 'Sección cita', 'Aviso enviado', 'Incidente seguridad',
+      'Gafete', 'Identificación', 'Hora de ingreso', 'Hora de llegada a rampa',
       'Hora de fin de carga/descarga', 'Hora de salida de rampa'
     ];
     
@@ -1652,6 +2399,7 @@
       td {
         padding: 8px;
         border: 1px solid #ddd;
+        text-transform: uppercase;
       }
     `;
     
@@ -1677,16 +2425,17 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      text-transform: uppercase;
     `;
     
     // Create status message without template literals
     const statusSpan = document.createElement('span');
-    statusSpan.textContent = 'Cargando datos del patio...';
+    statusSpan.textContent = 'CARGANDO DATOS DEL PATIO...';
     
     const statusInfo = document.createElement('div');
     statusInfo.innerHTML = 
-      '<strong>Auth:</strong> ' + (authorization ? '✅' : '❌') + 
-      ' <strong>Cookie:</strong> ' + (cookieValue ? '✅' : '❌');
+      '<strong>AUTH:</strong> ' + (authorization ? '✅' : '❌') + 
+      ' <strong>COOKIE:</strong> ' + (cookieValue ? '✅' : '❌');
     
     statusMsg.appendChild(statusSpan);
     statusMsg.appendChild(statusInfo);
@@ -1732,7 +2481,7 @@
           },
           service_type: "inbound",
           shipment_no: "10789315_1",
-          comment: "<a><b>angel</b><c>espinoza</c><d></d><e></e><f></f><g></g><h></h><i>380</i><j></j><k>2017</k><l>kenworth</l><m>20942063</m><n>y2a0ct</n><o>2012</o><p>hytr</p><u>mxtraabe</u><s1>1736790117367902</s1><critico></critico></a>\n<q></q>\n<r></r>\n<s></s>\n<t></t>\n<s2></s2><sc>1752651400000</sc>"
+          comment: "<a><b>angel</b><c>espinoza</c><d></d><e></e><f></f><g></g><h></h><i>380</i><j></j><k>2017</k><l>kenworth</l><m>20942063</m><n>y2a0ct</n><o>2012</o><p>hytr</p><u>mxtraabe</u><s1>1736790117367902</s1><critico></critico></a>\n<q></q>\n<r></r>\n<s></s>\n<t></t>\n<s2></s2><sc>1752651400000</sc><x>Incidente con llanta trasera</x><ga>A12345</ga><id>SON123456</id>"
         },
         status: "empty",
         commodity: "envaselv03",
@@ -1755,7 +2504,8 @@
             reference_2: "ib-0226430389"
           },
           service_type: "inbound",
-          shipment_no: "10767178_1"
+          shipment_no: "10767178_1",
+          comment: "<ga>B54321</ga>"
         },
         status: "loaded",
         commodity: "envaselv03im",
@@ -1779,7 +2529,8 @@
             sku: ["000000000002010099-btl mod esp 12oz bulk premium"]
           },
           service_type: "inbound",
-          shipment_no: "10767172_2"
+          shipment_no: "10767172_2",
+          comment: "<id>BC987654</id>"
         },
         status: "loaded",
         commodity: "envaselv03im",
