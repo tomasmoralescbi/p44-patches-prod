@@ -1,5 +1,5 @@
-//yard status v1
-//https://yard-visibility-na12.voc.project44.com/asset/trailer_listing
+//yard status v2
+//
 
 (function() {
   // Variables to store authorization and cookie information
@@ -54,7 +54,7 @@
   function createButton() {
     const button = document.createElement('button');
     button.id = 'console-button';
-    button.textContent = 'Estado de patio';
+    button.textContent = 'Consola de Puerta';
     button.style.cssText = `
       position: fixed;
       top: 10px;
