@@ -1,4 +1,4 @@
-//arrival form v1
+//arrival form 1.1
 //https://yard-visibility-na12.voc.project44.com/gate/console
 
 // Creating the main button at the top of the screen
@@ -1683,7 +1683,7 @@
       "expected_shipment_date": loadData.expected_shipment_date,
       "reference_1": loadData.reference_1,
       "type": "arrival",
-      "asset_class": document.getElementById('tipo-remolque').value,
+      "asset_type": document.getElementById('tipo-remolque').value,
       "site": "obregon",
       "site_name": "obregon",
       "gate_zone": "acceso 4",
@@ -1721,7 +1721,7 @@
       "first_name": document.getElementById('primer-nombre').value.toUpperCase(),
       "last_name": document.getElementById('primer-apellido').value.toUpperCase(),
       "assigned_location": recommendedZone?.name || "stg-03",
-      "asset_type": "trailer",
+      "asset_class": "trailer",
       "cab_no": document.getElementById('numero-economico-tracto').value.toUpperCase(),
       "is_seal_updated": false,
       "is_reefer": false,
