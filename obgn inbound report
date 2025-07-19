@@ -1,4 +1,4 @@
-//obgn inbound report v2
+//obgn inbound report v3
 //https://yard-visibility-na12.voc.project44.com/shipment/delivery
 
 // Script for yard management report tool
@@ -579,6 +579,7 @@
             { name: 'CRÍTICO', key: 'comment_critico', visible: true },
             { name: 'HORA EN QUE SE REPORTÓ', key: 'actual_arrival_time', visible: true },
             { name: 'HORA EN QUE SALIÓ', key: 'actual_departure_time', visible: true },
+            { name: 'HORA DE SALIDA CORRECTA', key: 'correct_departure_time', visible: true },
             // Added detailed columns
             { name: 'HORA DE INGRESO A PLANTA', key: 'plant_entry_time', visible: true },
             { name: 'HORA DE INICIO DE DESCARGA', key: 'unload_start_time', visible: true },
@@ -886,60 +887,59 @@
         }
         
         // Get cell value based on key
-        // Get cell value based on key
-function getCellValue(item, key, forExport) {
-    forExport = forExport || false;
-    
-    if (!item) return '';
-    
-    // Handle special comment fields
-    if (key.startsWith('comment_')) {
-        const tag = key.replace('comment_', '');
-        if (tag === 'critico') {
-            return hasCriticoTag(item.comment) ? 'CRÍTICO' : '';
-        }
-        
-        // Special case for "Hora que se indicó a perfilarse" which needs timestamp formatting
-        if (tag === 'sc') {
-            const content = item.comment ? extractTagContent(item.comment, tag) : '';
-            if (content && !isNaN(parseInt(content))) {
-                // If the content is a number (unix timestamp), format it
-                return formatTimestamp(parseInt(content));
+        function getCellValue(item, key, forExport) {
+            forExport = forExport || false;
+            
+            if (!item) return '';
+            
+            // Handle special comment fields
+            if (key.startsWith('comment_')) {
+                const tag = key.replace('comment_', '');
+                if (tag === 'critico') {
+                    return hasCriticoTag(item.comment) ? 'CRÍTICO' : '';
+                }
+                
+                // Special case for "Hora que se indicó a perfilarse" which needs timestamp formatting
+                if (tag === 'sc') {
+                    const content = item.comment ? extractTagContent(item.comment, tag) : '';
+                    if (content && !isNaN(parseInt(content))) {
+                        // If the content is a number (unix timestamp), format it
+                        return formatTimestamp(parseInt(content));
+                    }
+                    return content;
+                }
+                
+                return item.comment ? extractTagContent(item.comment, tag) : '';
             }
-            return content;
+            
+            // Handle other fields
+            switch (key) {
+                case 'gate_appointment_time':
+                case 'estimated_arrival_time':
+                case 'actual_arrival_time':
+                case 'actual_departure_time':
+                case 'plant_entry_time':
+                case 'unload_start_time':
+                case 'unload_end_time':
+                case 'ramp_arrival_time':
+                case 'ramp_exit_time':
+                case 'ramp_exit_request_time':
+                case 'booking_approved_date':
+                case 'correct_departure_time':
+                    return formatTimestamp(item[key]);
+                case 'load_information':
+                    return formatSKU(item[key]);
+                case 'view_shipment_url':
+                    if (forExport) return item[key] || '';
+                    return item[key] ? 
+                        '<a href="' + item[key] + '" target="_blank">VER</a>' : '';
+                case 'is_booking_approved':
+                    return item[key] === true ? 'SI' : (item[key] === false ? 'NO' : '');
+                default:
+                    return item[key] ? item[key].toString().toUpperCase() : '';
+            }
         }
         
-        return item.comment ? extractTagContent(item.comment, tag) : '';
-    }
-    
-    // Handle other fields
-    switch (key) {
-        case 'gate_appointment_time':
-        case 'estimated_arrival_time':
-        case 'actual_arrival_time':
-        case 'actual_departure_time':
-        case 'plant_entry_time':
-        case 'unload_start_time':
-        case 'unload_end_time':
-        case 'ramp_arrival_time':
-        case 'ramp_exit_time':
-        case 'ramp_exit_request_time':
-        case 'booking_approved_date':
-            return formatTimestamp(item[key]);
-        case 'load_information':
-            return formatSKU(item[key]);
-        case 'view_shipment_url':
-            if (forExport) return item[key] || '';
-            return item[key] ? 
-                '<a href="' + item[key] + '" target="_blank">VER</a>' : '';
-        case 'is_booking_approved':
-            return item[key] === true ? 'SI' : (item[key] === false ? 'NO' : '');
-        default:
-            return item[key] ? item[key].toString().toUpperCase() : '';
-    }
-}
-
-
         // Render the data table
         function renderTable() {
             tableContainer.innerHTML = '';
@@ -1369,6 +1369,12 @@ function getCellValue(item, key, forExport) {
                                             if (eventWithComment && eventWithComment.comment) {
                                                 allData[i].comment = eventWithComment.comment;
                                                 console.log('[DetailProcess] Row ' + (i+1) + ': Updated comment from gate event');
+                                            }
+                                            
+                                            // Extract departure event_time for HORA DE SALIDA CORRECTA
+                                            if (departureEvent && departureEvent.event_time) {
+                                                allData[i].correct_departure_time = departureEvent.event_time;
+                                                console.log('[DetailProcess] Row ' + (i+1) + ': Updated correct departure time');
                                             }
                                         }
                                     } else {
